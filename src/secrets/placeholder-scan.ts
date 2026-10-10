@@ -8,16 +8,9 @@ import {
 	SecretValueSet,
 } from "./placeholder";
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Helpers
-// ═══════════════════════════════════════════════════════════════════════════
 
-// Like the untracked walk, but threads a parallel `origin` tag string through:
-// preserved placeholder spans keep their existing origin tag (so a
-// same-call-fresh "F" placeholder is never relabeled prior-call "I", and vice
-// versa), while `transform`'s output — always freshly generated or redacted
-// content in both callers below — is tagged "I" (it must not be re-matched as
-// though it arrived in the input, mirroring plain-secret replacement tagging).
+// Generated content is tagged "I"; preserved placeholders keep their own origin so fresh vs prior-call tokens are never relabeled.
 export function transformOutsidePlaceholdersTracked(
 	text: string,
 	origin: string,
@@ -131,21 +124,13 @@ export function mapReplaceRegexMatch(
 	const end = endSegment.generatedPlaceholder
 		? endSegment.textEnd
 		: endSegment.textStart + (scanEnd - endSegment.scanStart);
-	// A match boundary that falls strictly inside a generated placeholder's
-	// expanded value cuts the underlying secret: the snap above pulls the span out
-	// to the whole `#…#` token, so the obfuscate path can leave it alone instead of
-	// consuming a partial placeholder expansion.
+	// A boundary inside a placeholder expansion cuts the secret - snap the span to the whole token instead.
 	const partialPlaceholderCut =
 		(startSegment.generatedPlaceholder && scanStart > startSegment.scanStart) ||
 		(endSegment.generatedPlaceholder && scanEnd < endSegment.scanEnd);
 	let recursive = false;
 	let preserveGeneratedPlaceholders = false;
-	// When the match straddles a placeholder, resume scanning just past the last
-	// overlapping placeholder so trailing wholly-outside content (e.g. an 8-char
-	// run after the secret) still gets matched instead of being consumed by the
-	// straddling span. `firstPlaceholderScanStart` marks where the leading
-	// wholly-outside prefix ends, so a prefix that independently matches can be
-	// redacted on its own rather than skipped along with the cut span.
+	// When a match straddles a placeholder, resume past it; a leading independent prefix still matches on its own.
 	let cutResumeIndex = scanStart;
 	let firstPlaceholderScanStart = -1;
 	for (const segment of segments) {
@@ -175,27 +160,7 @@ function findScanSegment(segments: ReadonlyArray<RegexScanSegment>, scanIndex: n
 	throw new Error("regex match did not map to source text");
 }
 
-/**
- * Extend a scan-space resume position past a consecutive run of generated
- * placeholder segments starting exactly at it, with no raw gap in between. A
- * cut-resolution resume point that happens to land precisely on the START of
- * ANOTHER placeholder must not stop there and hand it to a fresh `regex.exec`
- * attempt — the same content, scanned as an opaque adjacent placeholder run,
- * must resolve identically whether the run's LEADING member is still raw text
- * (this call is about to placeholder it) or is ALREADY a placeholder from a
- * prior call or an earlier pass of this same call. Without this, a bounded
- * regex whose reach spans two adjacent secrets plus trailing spillover bytes
- * (e.g. `[A-Z]{9}` over `ABCDEFGH` + `SECRETUV` + `A`) resolves the leading
- * secret as its own independent redaction on the FIRST obfuscate() call (a
- * genuinely raw prefix gets its own match, then the discard for the rest
- * resumes right after it), but on a LATER call — once that prefix is itself a
- * placeholder — the very first match attempt starts already inside the
- * placeholder run, cannot be prefix-narrowed at all, and its discard resume
- * point lands mid-run instead of past it, exposing a shorter tail (`SECRETUV`
- * + `A`) to a clean, un-cut match the first call never attempted. Chaining the
- * resume point through every immediately-adjacent placeholder makes both
- * calls land on the exact same next scan position.
- */
+// Chaining the resume point through adjacent placeholders makes first and later calls land on the identical scan position.
 export function extendPastAdjacentPlaceholders(segments: ReadonlyArray<RegexScanSegment>, index: number): number {
 	let cursor = index;
 	for (;;) {
@@ -205,16 +170,7 @@ export function extendPastAdjacentPlaceholders(segments: ReadonlyArray<RegexScan
 	}
 }
 
-// Apply a fixed custom replacement across a matched span while preserving any
-// inner generated placeholders. Usually the replacement is the user's single
-// redaction marker for the whole match, so emit it for the first non-empty
-// surrounding chunk and drop later chunks. But bounded regexes can cut through
-// an already-emitted marker on the trailing side (`X#…#RED` from
-// `XSECRETUVREDACTED`), where dropping the later prefix would leave raw bytes
-// (`ACTED`) to be consumed on the next pass. Promote later chunks that are a
-// prefix of the replacement to the FULL marker so the first pass is already a
-// fixed point. The reversible placeholder stays intact in its relative
-// position.
+// Fixed replacement over a match: emit the marker once; promote later chunks that are a marker prefix so the pass is a fixed point.
 export function redactWithFixedReplacementOutsidePlaceholders(
 	text: string,
 	origin: string,
@@ -263,11 +219,7 @@ export function deobfuscateGeneratedPlaceholderRanges(
 	return { text: result, recursive };
 }
 
-// Concatenate ONLY the deobfuscated placeholder ranges within [start, end),
-// dropping the bytes that lie outside them. Used to test whether a regex match
-// that straddles a prior-call placeholder would still match on the placeholder's
-// own (expanded) secret value alone — i.e. the surrounding raw bytes are greedy
-// spillover the match does not need, rather than content the match depends on.
+// Concatenate only placeholder-expanded bytes - proves a straddling match does not depend on surrounding spillover.
 export function placeholderInnerText(
 	text: string,
 	start: number,
@@ -287,11 +239,7 @@ export function placeholderInnerText(
 	return result;
 }
 
-// Concatenate the bytes of [start, end) that lie OUTSIDE the given (ascending,
-// non-overlapping) placeholder ranges. Used to test whether a regex match that
-// straddles a prior-call placeholder would still match on its surrounding bytes
-// alone — i.e. those bytes are genuinely new content to redact rather than a
-// match that only exists because the deobfuscated placeholder bridges them.
+// Concatenate only outside bytes - proves the match is genuine new content, not placeholder-bridged.
 export function textOutsidePlaceholderRanges(
 	text: string,
 	start: number,
@@ -311,26 +259,8 @@ export function textOutsidePlaceholderRanges(
 	return result;
 }
 
-// Like `textOutsidePlaceholderRanges`, but tests each outside chunk against
-// `regex` in its REAL context instead of on an isolated slice — tried in BOTH
-// the literal `#…#` placeholder-token text AND the EXPANDED scan context
-// (placeholder resolved to its secret value), since either can be the reason a
-// chunk independently requires redaction:
-//  - Literal-token context matters when the placeholder TOKEN's own non-word
-//    boundary is what completes a boundary-sensitive pattern, e.g. a prefix
-//    "ABCDEFGH" next to a placeholder token matches `\b[A-Z]{8}\b` because the
-//    token's leading `#` is a non-word byte — but that boundary disappears
-//    once the placeholder expands into more `[A-Z]` bytes with no separator.
-//  - Expanded scan context matters when a lookbehind/lookahead only resolves
-//    once the neighboring placeholder is expanded, e.g. a prior plain
-//    placeholder for `ABCDEFGH` next to raw `SECRET`, matched by
-//    `(?<=ABCDEFGH)SECRET`: the literal placeholder token before `SECRET`
-//    never satisfies the lookbehind, so literal-context alone wrongly reports
-//    no independent match.
-// A match only counts when it lies ENTIRELY within one outside chunk (in
-// whichever context it was tested); a match that reaches into the
-// placeholder itself is not evidence the outside chunk independently
-// requires redaction.
+// Test outside chunks in BOTH literal-token and expanded context (boundaries and lookarounds resolve differently each way).
+// A match counts only when it lies entirely inside one outside chunk.
 export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	text: string,
 	scanText: string,
@@ -340,9 +270,7 @@ export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	ranges: ReadonlyArray<{ start: number; end: number }>,
 	regex: RegExp,
 ): boolean {
-	// A text-space outside chunk lies entirely within one non-placeholder scan
-	// segment (placeholder ranges are exactly the gaps between such segments),
-	// so its scan-space span is a fixed offset from its text-space span.
+	// Scan-space offsets are fixed within a segment - outside chunks map 1:1.
 	const toScanSpace = (chunkStart: number, chunkEnd: number): [number, number] | undefined => {
 		for (const segment of segments) {
 			if (segment.generatedPlaceholder || segment.textStart > chunkStart || segment.textEnd < chunkEnd) continue;
@@ -367,9 +295,7 @@ export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	return cursor < end && chunkIndependentlyMatches(cursor, end);
 }
 
-// Whether `regex` (global) has a match fully contained in [chunkStart, chunkEnd)
-// when run against the full `text` — so lookbehind/lookahead see the actual
-// surrounding bytes rather than an isolated slice's edges.
+// Run against the full text so lookbehind/lookahead see real surroundings.
 function chunkMatchesInSourceContext(text: string, chunkStart: number, chunkEnd: number, regex: RegExp): boolean {
 	regex.lastIndex = chunkStart;
 	for (;;) {
@@ -475,11 +401,7 @@ export function collectJsonRegexSecretValues(obfuscator: SecretObfuscator, value
 	return values;
 }
 
-/**
- * Map string values in schema-designated JSON data: tool arguments, discovery
- * annotations, and schema examples. Keys remain identifiers. Protocol
- * objects and JSON Schema structure require their own typed traversal.
- */
+/** Map string values in schema-designated JSON data (tool args, discovery annotations, schema examples). */
 export function mapJsonStrings(value: JsonValue, fn: (s: string) => string): JsonValue {
 	if (typeof value === "string") return fn(value);
 	if (Array.isArray(value)) {

@@ -47,7 +47,7 @@ afterEach(() => {
 	fs.rmSync(tmpRoot, { recursive: true, force: true });
 });
 
-describe("loadSecrets — secrets.yml merge", () => {
+describe("loadSecrets - secrets.yml merge", () => {
 	test("global + project merge; project overrides global on equal content", async () => {
 		fs.writeFileSync(
 			path.join(agentDir, "secrets.yml"),

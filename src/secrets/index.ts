@@ -18,14 +18,6 @@ const logger = {
 	warn(message: string, data?: { path?: string; error?: string; pattern?: unknown; [key: string]: unknown }): void {
 		console.warn(`[pi-secrets] ${message}`, data ?? "");
 	},
-	async time<T, A extends unknown[]>(label: string, fn: (...args: A) => Promise<T>, ...args: A): Promise<T> {
-		const start = Date.now();
-		try {
-			return await fn(...args);
-		} finally {
-			console.debug(`[pi-secrets] ${label} ${Date.now() - start}ms`);
-		}
-	},
 };
 
 function sleep(ms: number): Promise<void> {
@@ -40,12 +32,7 @@ function defaultKeyPath(): string {
 const PLACEHOLDER_KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 const cachedPlaceholderKeys = new Map<string, string>();
 
-/**
- * Per-install secret key for the placeholder digest. Persisted under pi's agent
- * dir and never sent to a provider, so model-visible placeholders cannot be
- * reversed by dictionary-hashing candidate secrets. Stable across sessions so
- * persisted transcripts deobfuscate consistently.
- */
+/** Per-install key for placeholder digests; persisted under the agent dir, never sent to a provider, stable across sessions. */
 export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
@@ -65,10 +52,7 @@ export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> 
 		return generated;
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-		// Another process won the create race but may still be mid-write: `wx`
-		// creates the file empty before the bytes land. Wait for non-empty content
-		// instead of caching an empty key (which would be a known, dictionaryable
-		// key and would not match tokens other processes persist with the real key).
+		// Wait for non-empty content after a create race - an empty key is dictionaryable and won't match other processes' tokens.
 		const winner = await readPlaceholderKeyFile(keyPath, true);
 		if (winner === undefined) {
 			throw new Error(`secret placeholder key at ${keyPath} exists but is empty or unreadable`);
@@ -83,11 +67,7 @@ export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
 	if (cached !== undefined) return cached;
-	// Redaction-only: this key is loaded solely to redact an existing key file from
-	// provider-visible tool output, never to mint placeholders. A truncated/corrupt
-	// or unreadable key must NOT block startup for replace-only/no-secret sessions —
-	// an invalid key is not a usable HMAC anyway, and a tool reading the same file
-	// gets the same bytes, so there is nothing sensitive to redact.
+	// Redaction-only load (no minting): a corrupt/unreadable key must not block startup, nor is there anything sensitive to redact.
 	let existing: string | undefined;
 	try {
 		existing = await readPlaceholderKeyFile(keyPath, true);
@@ -98,19 +78,10 @@ export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<
 	return existing;
 }
 
-// Process-stable fallback for the sync lazy path when the key file cannot be
-// persisted (e.g. unwritable config root on a headless run). Memoized so
-// re-obfuscation within the process stays idempotent; placeholders simply lose
-// cross-session stability, matching `defaultPlaceholderKey()` in obfuscator.ts.
+// Process-stable fallback when the key file can't be persisted; loses cross-session stability only.
 let ephemeralSyncPlaceholderKey: string | undefined;
 
-/**
- * Synchronous variant of `getSecretPlaceholderKey` for the lazy key provider
- * `SecretObfuscator` invokes inside its synchronous `obfuscate()` path when a
- * built-in credential-pattern entry first matches session content. Never
- * throws: an unreadable or unwritable key file degrades to a process-ephemeral
- * key (with a warning) instead of breaking the session.
- */
+/** Sync lazy-key path for `obfuscate()`; never throws - unwritable degrades to a process-ephemeral key. */
 export function getSecretPlaceholderKeySync(keyDir?: string): string {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
@@ -122,7 +93,7 @@ export function getSecretPlaceholderKeySync(keyDir?: string): string {
 			return existing;
 		}
 	} catch {
-		// Missing or unreadable — attempt creation below.
+		// Missing or unreadable - attempt creation below.
 	}
 	const generated = crypto.randomBytes(32).toString("base64url");
 	try {
@@ -180,13 +151,7 @@ export { type SecretEntry, SecretObfuscator } from "./obfuscator";
 export * from "./patterns";
 export { secretEntriesNeedPlaceholderKey, secretEntryNeedsPlaceholderKey } from "./placeholder";
 
-/**
- * Load secrets from project-local and global secrets.yml files.
- * Project-local entries override global entries with matching content.
- *
- * PORTED: project path is `<cwd>/secrets.yml` (pi's own convention, where OMP
- * used `<cwd>/.omp/secrets.yml`); global is `<agentDir>/secrets.yml`.
- */
+/** Load secrets.yml (project + global); project entries override globals with matching content. */
 export async function loadSecrets(cwd: string, agentDir: string): Promise<SecretEntry[]> {
 	const projectPath = path.join(cwd, "secrets.yml");
 	const globalPath = path.join(agentDir, "secrets.yml");
@@ -240,26 +205,13 @@ export function collectEnvSecrets(): SecretEntry[] {
 				entries.push({ type: "plain", content: decoded, mode: "obfuscate" });
 			}
 		} catch {
-			// Malformed percent-encoding — the raw password is already registered.
+			// Malformed percent-encoding - the raw password is already registered.
 		}
 	}
 	return entries;
 }
 
-/**
- * Built-in entries covering the credential-shaped tokens declared in
- * `patterns.ts` (GitHub/GitLab/OpenAI-style API keys and other vendor-prefixed
- * credentials) that are NOT configured via secrets.yml or the environment. Without
- * these, such a token in a tool result falls through to the provider-boundary
- * irreversible redaction (`[openai_token_redacted]`); the model then echoes
- * that placeholder into edit-tool `old_string`, which can never match the real
- * bytes on disk. Routing the same shapes through the obfuscator mints
- * reversible keyed placeholders that `deobfuscateToolArguments` restores
- * before tool execution, keeping exact-match edits working while the credential
- * bytes still never reach the provider. There is no entropy gate here — a false
- * positive only over-obfuscates, which stays transparent because the round trip
- * is lossless.
- */
+/** Built-ins cover `patterns.ts` shapes with reversible placeholders so exact-match edits keep working (unregistered shapes would otherwise be one-way-redacted and uneditable). */
 export function builtinCredentialSecretEntries(): SecretEntry[] {
 	return CREDENTIAL_PATTERNS.map((pattern) => ({
 		type: "regex",
@@ -271,33 +223,13 @@ export function builtinCredentialSecretEntries(): SecretEntry[] {
 	}));
 }
 
-/**
- * Build the session secret obfuscator from every configured source: secrets.yml
- * (project + global), secret-shaped environment variables, and the built-in
- * credential patterns. Callers gate on `secrets.enabled`.
- *
- * Only CONFIGURED entries force startup key creation: a configured
- * obfuscate-mode secret — or a default (no custom `replacement`) replace-mode
- * regex whose key-derived idempotent fallback marker needs a stable key across
- * restarts (see `secretEntryNeedsPlaceholderKey`) — mints placeholders as soon
- * as the obfuscator is built. The built-in credential-pattern entry matches
- * dynamically, so it resolves the persisted key lazily on first match instead
- * of creating the key file for every secrets-enabled session.
- *
- * When no configured entry produced an active secret but a persisted key
- * exists, returns a redaction-only obfuscator so a tool read of the key file
- * does not ship the reusable HMAC key to the provider. Returns undefined when
- * there is nothing to protect.
- *
- * `keyDir` is the explicit agent dir override for the placeholder-key file
- * (defaults to pi's agent dir when omitted).
- */
+/** Build the session obfuscator (secrets.yml + env + built-ins). Configured entries force key creation; built-ins resolve the key lazily; with no active secret but a persisted key, returns a redaction-only obfuscator. */
 export async function buildSecretObfuscator(
 	cwd: string,
 	agentDir: string,
 	keyDir?: string,
 ): Promise<SecretObfuscator | undefined> {
-	const fileEntries = await logger.time("loadSecrets", loadSecrets, cwd, agentDir);
+	const fileEntries = await loadSecrets(cwd, agentDir);
 	const envEntries = collectEnvSecrets();
 	// Built-in credential-pattern entries come last so user-configured entries
 	// (plain literals, custom regexes) take precedence in the scan order.
@@ -346,13 +278,7 @@ async function loadSecretsFile(filePath: string): Promise<SecretEntry[]> {
 	}
 }
 
-// Validates the friendlyName but returns it UNSANITIZED: `SecretObfuscator`'s
-// own `#createPlaceholder` sanitizes it again and, critically, needs the raw
-// string for `#friendlyNameCollidesWithSecret`'s regex-collision check — a
-// case-sensitive/punctuated regex pattern (e.g. `tok_[a-z0-9]+`) only matches
-// the label as it was actually written, not an already-uppercased,
-// separator-stripped rendering of it. Pre-sanitizing here would silently
-// defeat that check for every `secrets.yml`-loaded entry.
+// Return friendlyName unsanitized: `#createPlaceholder` re-sanitizes and needs the RAW string for its regex-collision check (pre-sanitizing defeats it).
 function loadFriendlyName(entry: RawSecretEntry, filePath: string, index: number): string | undefined {
 	if (entry.friendlyName === undefined) return undefined;
 	if (typeof entry.friendlyName !== "string") {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extensionFactory from "../index.ts";
 
 const SECRET = "wiring-secret-12345678901";
@@ -65,8 +65,8 @@ afterEach(() => {
 	delete process.env.PI_CODING_AGENT_DIR;
 });
 
-describe("pi-secrets wiring — persist mode (Option B)", () => {
-	test("full pipeline: session → context hides → tool_call reveals → message_end reveals", async () => {
+describe("pi-secrets wiring - single mode (Phase 8)", () => {
+	test("full pipeline: session → context hides → tool_call reveals → user/assistant message_end stores hashes", async () => {
 		const fake = makeFakePi(true); // --secrets flag forces on
 		extensionFactory(fake.pi);
 
@@ -93,19 +93,164 @@ describe("pi-secrets wiring — persist mode (Option B)", () => {
 		expect((editEvent.input as { old: string }).old).toBe(SECRET);
 		expect((editEvent.input as { new: string }).new).toBe("replacement");
 
-		// message_end: assistant content quoting the placeholder must reveal to the human.
-		const endEvent = {
+		// message_end (user): real text is hashed at rest - the file never sees
+		// the raw value.
+		const userEnd = (await fake.run("message_end", {
 			type: "message_end",
-			message: { role: "assistant", content: [{ type: "text", text: `the token is ${placeholder}` }] },
-		};
-		const ended = (await fake.run("message_end", endEvent)) as {
-			message: { role: string; content: Array<{ type: string; text: string }> };
-		};
-		expect(ended.message.role).toBe("assistant");
-		expect(ended.message.content[0].text).toBe(`the token is ${SECRET}`);
+			message: { role: "user", content: PLAIN_INPUT, timestamp: 0 },
+		})) as { message: { role: string; content: string } };
+		expect(userEnd.message.role).toBe("user");
+		expect(userEnd.message.content).not.toContain(SECRET);
+		expect(userEnd.message.content).toContain(placeholder);
+
+		// message_end (assistant): the model's own words already carry
+		// placeholders - a fixed-point no-op (identity return, nothing stored
+		// extra). A real value the model reassembled is hashed at rest.
+		const safeEnd = await fake.run("message_end", {
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: `the token is ${placeholder}` }],
+			},
+		});
+		expect(safeEnd).toBeUndefined();
+
+		const assembledEnd = (await fake.run("message_end", {
+			type: "message_end",
+			message: { role: "assistant", content: [{ type: "text", text: `rebuild: ${SECRET}` }] },
+		})) as { message: { content: Array<{ text: string }> } };
+		expect(assembledEnd.message.content[0].text).not.toContain(SECRET);
+		expect(assembledEnd.message.content[0].text).toContain("$$");
 	});
 
-	test("disabled session: every handler is a no-op", async () => {
+	test("transformer reveals user, assistant, and assistant-thinking at paint time; ignores other types", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const context = (await fake.run("context", {
+			type: "context",
+			messages: [{ role: "user", content: PLAIN_INPUT, timestamp: 0 }],
+		})) as { messages: Array<{ content: string }> };
+		const placeholder = PLACEHOLDER_RE.exec(context.messages[0].content)?.[0];
+		expect(placeholder).toBeDefined();
+
+		expect(fake.transformers).toHaveLength(1);
+		const transform = fake.transformers[0];
+		for (const messageType of ["user", "assistant", "assistant-thinking"] as const) {
+			expect(transform(`the token is ${placeholder}`, { messageType, isStreaming: false, availableWidth: 80 })).toBe(
+				`the token is ${SECRET}`,
+			);
+		}
+		// Tool blocks are not revealed anywhere (D7) - the transformer must pass
+		// any other message type through untouched.
+		expect(
+			transform(`the token is ${placeholder}`, {
+				messageType: "toolResult" as never,
+				isStreaming: false,
+				availableWidth: 80,
+			}),
+		).toBe(`the token is ${placeholder}`);
+	});
+
+	test("tool_result scrubs content AND structuredContent, returned together", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const result = (await fake.run("tool_result", {
+			type: "tool_result",
+			toolName: "bash",
+			toolCallId: "call-2",
+			input: {},
+			content: [{ type: "text", text: `cat .env: ${SECRET}` }],
+			structuredContent: { rows: [{ key: "TOP_FREEINFERENCE_API_KEY", value: SECRET }] },
+			isError: false,
+			details: undefined,
+		})) as { content: Array<{ text: string }>; structuredContent?: { rows: Array<{ value: string }> } };
+
+		expect(result.content[0].text).not.toContain(SECRET);
+		expect(result.content[0].text).toContain("$$");
+		// structuredContent survives (contract: dropping it would delete it).
+		expect(result.structuredContent).toBeDefined();
+		expect(JSON.stringify(result.structuredContent)).not.toContain(SECRET);
+		expect(JSON.stringify(result.structuredContent)).toContain("$$");
+	});
+
+	test("message_end (toolResult) scrubs content, details, and nested-call args at rest", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const ended = (await fake.run("message_end", {
+			type: "message_end",
+			message: {
+				role: "toolResult",
+				toolCallId: "call-3",
+				toolName: "custom",
+				content: [{ type: "text", text: `output says ${SECRET}` }],
+				details: { token: SECRET },
+				nestedCalls: {
+					calls: [{ id: "n1", name: "bash", arguments: { command: `echo ${SECRET}` }, status: "ok" }],
+					complete: true,
+				},
+				isError: false,
+				timestamp: 0,
+			},
+		})) as {
+			message: {
+				role: string;
+				content: Array<{ text: string }>;
+				details?: unknown;
+				nestedCalls?: { calls: Array<{ arguments?: unknown }> };
+			};
+		};
+
+		expect(ended.message.role).toBe("toolResult");
+		expect(ended.message.content[0].text).not.toContain(SECRET);
+		expect(JSON.stringify(ended.message.details)).not.toContain(SECRET);
+		expect(JSON.stringify(ended.message.nestedCalls)).not.toContain(SECRET);
+		expect(JSON.stringify(ended.message)).not.toContain(SECRET);
+	});
+
+	test("user_bash returns scrubbing operations when enabled, undefined when disabled", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const enabled = (await fake.run("user_bash", {
+			type: "user_bash",
+			command: `echo ${SECRET}`,
+			excludeFromContext: false,
+			cwd,
+		})) as { operations: BashOperations };
+		expect(enabled.operations).toBeDefined();
+
+		// The wrapper delegates to pi's local shell ops; output must be
+		// scrubbed end-to-end (no raw value ever reaches the record).
+		const chunks: string[] = [];
+		const exit = await enabled.operations.exec(`printf %s '${SECRET}'`, cwd, {
+			onData: (data) => chunks.push(data.toString("utf8")),
+		});
+		expect(exit.exitCode).toBe(0);
+		const output = chunks.join("");
+		expect(output).not.toContain(SECRET);
+		expect(output).toContain("$$");
+
+		// Disabled session: no handler result - local execution continues.
+		const off = makeFakePi(false);
+		extensionFactory(off.pi);
+		await off.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+		const disabled = await off.run("user_bash", {
+			type: "user_bash",
+			command: "echo hi",
+			excludeFromContext: false,
+			cwd,
+		});
+		expect(disabled).toBeUndefined();
+	});
+
+	test("disabled session: every handler is a no-op and the transformer is a pass-through", async () => {
 		const fake = makeFakePi(false);
 		extensionFactory(fake.pi);
 		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
@@ -127,9 +272,22 @@ describe("pi-secrets wiring — persist mode (Option B)", () => {
 
 		const ended = await fake.run("message_end", {
 			type: "message_end",
-			message: { role: "assistant", content: [{ type: "text", text: SECRET }] },
+			message: { role: "user", content: PLAIN_INPUT, timestamp: 0 },
 		});
 		expect(ended).toBeUndefined();
+
+		const userBash = await fake.run("user_bash", {
+			type: "user_bash",
+			command: "echo hi",
+			excludeFromContext: false,
+			cwd,
+		});
+		expect(userBash).toBeUndefined();
+
+		const transform = fake.transformers[0];
+		expect(transform(`token ${SECRET}`, { messageType: "assistant", isStreaming: false, availableWidth: 80 })).toBe(
+			`token ${SECRET}`,
+		);
 	});
 
 	test("context returns undefined when nothing changed (pi reuses its objects)", async () => {
@@ -140,48 +298,5 @@ describe("pi-secrets wiring — persist mode (Option B)", () => {
 		const plain = [{ role: "user", content: "no secrets in this message at all", timestamp: 0 }];
 		const result = await fake.run("context", { type: "context", messages: plain });
 		expect(result).toBeUndefined();
-	});
-});
-
-describe("pi-secrets wiring — render mode (Option A)", () => {
-	test("message_end stays untouched (hashes at rest); transformer reveals at paint time", async () => {
-		// Enabled via settings file; no CLI flag.
-		fs.writeFileSync(
-			path.join(agentDir, "settings.json"),
-			JSON.stringify({ secrets: { enabled: true, mode: "render" } }),
-		);
-		const fake = makeFakePi(undefined);
-		extensionFactory(fake.pi);
-		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
-
-		const context = (await fake.run("context", {
-			type: "context",
-			messages: [{ role: "user", content: PLAIN_INPUT, timestamp: 0 }],
-		})) as { messages: Array<{ content: string }> };
-		const placeholder = PLACEHOLDER_RE.exec(context.messages[0].content)?.[0];
-		expect(placeholder).toBeDefined();
-
-		// No message_end reveal: the replacement must be absent, hashes persist.
-		const ended = await fake.run("message_end", {
-			type: "message_end",
-			message: { role: "assistant", content: [{ type: "text", text: `the token is ${placeholder}` }] },
-		});
-		expect(ended).toBeUndefined();
-
-		// The registered transformer reveals on assistant render only.
-		expect(fake.transformers).toHaveLength(1);
-		const transform = fake.transformers[0];
-		const revealed = transform(`the token is ${placeholder}`, {
-			messageType: "assistant",
-			isStreaming: false,
-			availableWidth: 80,
-		});
-		expect(revealed).toBe(`the token is ${SECRET}`);
-		const userText = transform(`the token is ${placeholder}`, {
-			messageType: "user",
-			isStreaming: false,
-			availableWidth: 80,
-		});
-		expect(userText).toBe(`the token is ${placeholder}`);
 	});
 });

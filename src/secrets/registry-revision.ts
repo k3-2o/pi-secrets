@@ -1,10 +1,4 @@
-/**
- * Version of a {@link SecretObfuscator}'s registry: every collection redaction
- * reads is a tracked collection bound to one revision, and each effective
- * write bumps it. Results reused across calls are keyed by `value`, so a write
- * can never leave a stale result in place — there is no separate invalidation
- * step to forget.
- */
+/** Registry revision: tracked collections bind to it, reused results key on it - a write can never leave a stale result. */
 export class RegistryRevision {
 	value = 0;
 
@@ -13,8 +7,7 @@ export class RegistryRevision {
 	}
 }
 
-// Both wrap a plain collection instead of subclassing it: reads are the hot
-// path of redaction and stay on the engine's builtin Map/Set fast paths.
+// Wrap, don't subclass - keeps reads on the native Map/Set fast paths.
 
 /** Map whose effective writes bump a {@link RegistryRevision}. */
 export class TrackedMap<K, V> implements ReadonlyMap<K, V> {

@@ -23,7 +23,7 @@ function obf(entries: SecretEntry[], key: string = KEY): SecretObfuscator {
 	return new SecretObfuscator(entries, key);
 }
 
-describe("obfuscator — fixed point", () => {
+describe("obfuscator - fixed point", () => {
 	test("re-obfuscating hidden text is a no-op", () => {
 		const o = obf([PLAIN_ENTRY]);
 		const once = o.obfuscate("secret plain-secret-value-123 here");
@@ -32,7 +32,7 @@ describe("obfuscator — fixed point", () => {
 	});
 });
 
-describe("obfuscator — keyed determinism", () => {
+describe("obfuscator - keyed determinism", () => {
 	test("same key ⇒ same placeholder across instances", () => {
 		const a = obf([PLAIN_ENTRY], KEY).obfuscate("plain-secret-value-123");
 		const b = obf([PLAIN_ENTRY], KEY).obfuscate("plain-secret-value-123");
@@ -53,7 +53,7 @@ describe("obfuscator — keyed determinism", () => {
 	});
 });
 
-describe("obfuscator — regex entries round trip", () => {
+describe("obfuscator - regex entries round trip", () => {
 	test("regex match hidden and restored", () => {
 		const input = "use TOK_ABCDEF1234567890 plz";
 		const o = obf([REGEX_ENTRY]);
@@ -63,7 +63,7 @@ describe("obfuscator — regex entries round trip", () => {
 	});
 });
 
-describe("obfuscator — forgery resistance", () => {
+describe("obfuscator - forgery resistance", () => {
 	test("model-invented $$…$$ text stays literal (never becomes a secret)", () => {
 		const o = obf([PLAIN_ENTRY]);
 		const forged = "$$FORGED_ABC123DEF456:L$$";
@@ -73,7 +73,7 @@ describe("obfuscator — forgery resistance", () => {
 	});
 });
 
-describe("obfuscator — replace mode (one-way)", () => {
+describe("obfuscator - replace mode (one-way)", () => {
 	test("custom replacement is emitted and never restored", () => {
 		const o = obf([{ type: "plain", content: "do-not-recover", mode: "replace", replacement: "[REDACTED]" }]);
 		const hidden = o.obfuscate("the do-not-recover stays");
@@ -82,7 +82,7 @@ describe("obfuscator — replace mode (one-way)", () => {
 	});
 });
 
-describe("obfuscator — friendly names and case hints", () => {
+describe("obfuscator - friendly names and case hints", () => {
 	test("placeholder carries sanitized friendly prefix and case hint, round-trips", () => {
 		const o = obf([{ type: "plain", content: "MySecretValueX", mode: "obfuscate", friendlyName: "GH_TOKEN" }]);
 		const hidden = o.obfuscate("MySecretValueX");
@@ -91,7 +91,7 @@ describe("obfuscator — friendly names and case hints", () => {
 	});
 });
 
-describe("obfuscator — built-in credential patterns", () => {
+describe("obfuscator - built-in credential patterns", () => {
 	const builtins = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
 	const roundTrip = (input: string): void => {
 		const hidden = builtins.obfuscate(input);
@@ -115,5 +115,17 @@ describe("obfuscator — built-in credential patterns", () => {
 		const hidden = builtins.obfuscate(pem);
 		expect(hidden).not.toContain("BEGIN PRIVATE KEY");
 		expect(builtins.deobfuscate(hidden)).toBe(pem);
+	});
+
+	test("0.1.0 curated batch round-trips (Shopify, Postman, Pulumi, DigitalOcean, Grafana, Twilio, Alibaba)", () => {
+		roundTrip(`key shpat_${"a".repeat(32)} x`);
+		roundTrip(`key shpca_${"b".repeat(32)} x`);
+		roundTrip(`key shppa_${"c".repeat(32)} x`);
+		roundTrip(`key PMAK-${"d".repeat(24)}-${"e".repeat(34)} x`);
+		roundTrip(`key pul-${"f".repeat(40)} x`);
+		roundTrip(`key dop_v1_${"g".repeat(64)} x`);
+		roundTrip(`key glc_${"h".repeat(40)} x`);
+		roundTrip(`key SK${"0".repeat(32)} x`);
+		roundTrip(`key LTAI${"i".repeat(20)} x`);
 	});
 });

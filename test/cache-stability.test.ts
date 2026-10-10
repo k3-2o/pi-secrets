@@ -55,7 +55,7 @@ describe("cache stability", () => {
 		const o = obf();
 		const user = { role: "user", content: `key: ${SECRET}`, timestamp: 0 } as unknown as AgentMessage;
 
-		// turn 1 request — the only bytes the provider ever saw
+		// turn 1 request - the only bytes the provider ever saw
 		const req1 = obfuscateProviderContext(o, { messages: [user] });
 		const hashedUser = req1.messages[0];
 		const placeholder = ((hashedUser as { content: string }).content.match(/\$\$[A-Z]+_[A-Z0-9]{12}:[ULCM]\$\$/) ??

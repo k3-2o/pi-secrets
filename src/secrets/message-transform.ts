@@ -1,38 +1,16 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { JsonObject } from "@earendil-works/pi-ai";
+import { captureUnregistered } from "./at-rest";
 import type { JsonValue, SecretObfuscator } from "./obfuscator";
 import { SecretValueSet } from "./placeholder";
 import { collectJsonRegexSecretValues, mapJsonStrings } from "./placeholder-scan";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PORTED-DEFERRED (see Architecture.md C2.2 / Phase 7):
-//   - `obfuscateNativeReplay` / `collectNativeReplayRegexSecretValues` and the
-//     mapNative* walkers (OpenAI Responses history / Anthropic compaction
-//     `filesText`): they require pi-ai provider-payload types that are OMP fork
-//     additions and are not reachable from the vanilla pi extension surface.
-//     Native replay payloads mostly inherit hashes from already-obfuscated
-//     messages, so this is a documented edge-case gap, not a leak.
-//   - `deobfuscateSessionContext`: OMP core's SessionContext wrapper; vanilla pi
-//     has no extension-visible equivalent. `deobfuscateAgentMessages` performs
-//     the same walk with no wrapper.
-//   - developer-role messages, tool-call `intent`/`rawBlock`, compaction
-//     `shortSummary`/`blocks`: OMP fork additions absent from vanilla pi 1.1.0
-//     message shapes, so their branches are dropped rather than stubbed.
-// ─────────────────────────────────────────────────────────────────────────────
 
 type AssistantContent = Extract<AgentMessage, { role: "assistant" }>["content"];
 /** Tool-result content is always a block array; user content may be a string. */
 type ContentBlocks = Extract<AgentMessage, { role: "toolResult" }>["content"];
 type UserFacingMessage = Extract<AgentMessage, { role: "user" | "toolResult" }>;
 
-/**
- * Restore placeholders in assistant-authored messages for local display. Only
- * message kinds the model authored from obfuscated context carry placeholders:
- * assistant content and LLM-written branch/compaction summaries. User and
- * tool-result messages are persisted with their literal text, so
- * operator-authored placeholder-shaped text must survive untouched; those roles
- * are never walked.
- */
+/** Reveal in assistant-authored content only; user/tool-result roles are never walked so operator-shaped text survives. */
 export function deobfuscateAgentMessages(obfuscator: SecretObfuscator, messages: AgentMessage[]): AgentMessage[] {
 	const deob = (text: string): string => obfuscator.deobfuscate(text);
 	let changed = false;
@@ -113,10 +91,6 @@ export function obfuscateToolArguments(
 	});
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Outbound obfuscation (local → provider)
-// ═══════════════════════════════════════════════════════════════════════════
-
 /** Obfuscate `text` blocks of a content array; image and other blocks pass through. */
 function obfuscateTextBlocks(
 	obfuscator: SecretObfuscator,
@@ -148,11 +122,7 @@ export function deobfuscateTextBlocks(obfuscator: SecretObfuscator, content: Con
 	return changed ? result : content;
 }
 
-/**
- * Re-obfuscate assistant content before it returns to a provider after session
- * restoration, removing friendly prefixes made unsafe by this batch. A changed
- * thinking block loses its byte-bound replay signature.
- */
+/** Re-obfuscate assistant content after restoration, dropping friendly prefixes made unsafe by this batch. */
 function obfuscateAssistantContentForReplay(
 	obfuscator: SecretObfuscator,
 	content: AssistantContent,
@@ -188,11 +158,7 @@ function obfuscateAssistantContentForReplay(
 	return changed ? result : content;
 }
 
-/**
- * Collect every regex-matching secret value across the outbound batch so a
- * single redaction pass can share one collision set (an obfuscated value
- * elsewhere in the same batch must not re-obfuscate the placeholder it became).
- */
+/** One shared collision set per batch - a value obfuscated elsewhere must not re-obfuscate its own placeholder. */
 function collectMessageRegexSecretValues(obfuscator: SecretObfuscator, messages: AgentMessage[]): SecretValueSet {
 	const values = new SecretValueSet();
 	const addText = (text: string | undefined): void => {
@@ -227,15 +193,34 @@ function collectMessageRegexSecretValues(obfuscator: SecretObfuscator, messages:
 	return values;
 }
 
-/**
- * Redact secrets from outbound messages. User messages and tool results are
- * obfuscated; assistant replay content is re-obfuscated too, because session
- * restoration expands keyed placeholders locally before the next provider
- * request. Inline image bytes are never walked.
- */
+/** Obfuscate user/toolResult; re-obfuscate assistant replay (restoration expands placeholders); inline images never walked. */
 export function obfuscateMessages(obfuscator: SecretObfuscator, messages: AgentMessage[]): AgentMessage[] {
+	// Capture assignment/URL values first - capture seeds the registry even when empty.
+	for (const message of messages) {
+		if ("content" in message) captureContentText(obfuscator, message.content);
+	}
 	if (!obfuscator.obfuscates()) return messages;
 	return obfuscator.batch(() => obfuscateMessageBatch(obfuscator, messages));
+}
+
+/** Capture unregistered assignment/URL-password values in message text (content blocks). */
+function captureContentText(obfuscator: SecretObfuscator, content: unknown): void {
+	if (typeof content === "string") {
+		captureUnregistered(obfuscator, content);
+		return;
+	}
+	if (!Array.isArray(content)) return;
+	for (const block of content) {
+		if (
+			block !== null &&
+			typeof block === "object" &&
+			"type" in block &&
+			(block as { type?: unknown }).type === "text" &&
+			typeof (block as { text?: unknown }).text === "string"
+		) {
+			captureUnregistered(obfuscator, (block as { text: string }).text);
+		}
+	}
 }
 
 function obfuscateMessageBatch(obfuscator: SecretObfuscator, messages: AgentMessage[]): AgentMessage[] {

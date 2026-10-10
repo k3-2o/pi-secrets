@@ -5,22 +5,14 @@ export interface CredentialPattern {
 	name: string;
 	source: string;
 	flags?: string;
-	/**
-	 * Literal substrings at least one of which every match of `source`
-	 * contains. The obfuscator skips the regex over text containing none of
-	 * them (`includes` beats a lookbehind regex by orders of magnitude, and the
-	 * whole provider context is scanned on every request). Must be exhaustive
-	 * for the pattern's alternatives; a pattern without this field is always
-	 * scanned. Case-insensitive patterns are matched case-insensitively.
-	 */
+	/** Literal prefixes, at least one per match - text without any skips the regex; must be exhaustive or a secret slips through. */
 	literalPrefixes?: readonly string[];
 }
 
 const B = "(?<![A-Za-z0-9_-])"; // left boundary
 const E = "(?![A-Za-z0-9_-])"; // right boundary
 
-// Standard PEM private-key block: five dashes, BEGIN, optional algorithm label,
-// PRIVATE KEY, five dashes, lazy body, matching END armor line.
+// PEM private-key block: -----BEGIN [label] PRIVATE KEY----- body -----END [label] PRIVATE KEY-----
 const PEM_PRIVATE_KEY_SOURCE = "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----";
 
 export interface CredentialPrefixRule {
@@ -30,11 +22,7 @@ export interface CredentialPrefixRule {
 	readonly mode: "token" | "line" | "bearer-token";
 }
 
-/**
- * Credential introducers which are sensitive before a complete high-entropy token
- * has been typed. Stream redaction deliberately applies these without the normal
- * length or entropy gates.
- */
+/** Prefixes sensitive before the token is complete - applied without length/entropy gates. */
 export const CREDENTIAL_PREFIX_RULES: readonly CredentialPrefixRule[] = [
 	{ source: "sk-ant-", mode: "token" },
 	{ source: "sk-proj-", mode: "token" },
@@ -93,4 +81,23 @@ export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
 		literalPrefixes: ["Bearer "],
 	},
 	{ name: "PrivateKey", source: PEM_PRIVATE_KEY_SOURCE, literalPrefixes: ["-----BEGIN "] },
+	{
+		name: "ShopifyToken",
+		source: `${B}(?:shpat_|shpca_|shppa_)[A-Za-z0-9]{32}${E}`,
+		literalPrefixes: ["shpat_", "shpca_", "shppa_"],
+	},
+	{
+		name: "PostmanToken",
+		source: `${B}PMAK-[A-Za-z0-9]{24}-[A-Za-z0-9]{34}${E}`,
+		literalPrefixes: ["PMAK-"],
+	},
+	{ name: "PulumiToken", source: `${B}pul-[A-Za-z0-9]{40}${E}`, literalPrefixes: ["pul-"] },
+	{
+		name: "DigitalOceanToken",
+		source: `${B}dop_v1_[A-Za-z0-9]{64}${E}`,
+		literalPrefixes: ["dop_v1_"],
+	},
+	{ name: "GrafanaCloudToken", source: `${B}glc_[A-Za-z0-9+/]{32,}${E}`, literalPrefixes: ["glc_"] },
+	{ name: "TwilioKey", source: `${B}SK[A-Fa-f0-9]{32}${E}`, literalPrefixes: ["SK"] },
+	{ name: "AlibabaKeyID", source: `${B}LTAI[A-Za-z0-9]{20}${E}`, literalPrefixes: ["LTAI"] },
 ];

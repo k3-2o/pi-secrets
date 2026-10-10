@@ -3,25 +3,16 @@ import type { SecretEntry } from "./obfuscator";
 import type { RegistryRevision } from "./registry-revision";
 import { ensureDistinctReplacement, generateDeterministicReplacement, REPLACEMENT_CHARS } from "./replacement";
 
-// ═══════════════════════════════════════════════════════════════════════════
 // Placeholder format
-// ═══════════════════════════════════════════════════════════════════════════
 
 const HASH_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-// Base length is sized for ~62 bits of entropy (64 bits of a keyed digest
-// rendered as 12 base36 chars) so unrelated secrets do not collide on a shared
-// base. A collision would let a persisted placeholder deobfuscate to the wrong
-// secret when the configured secret set or its ordering changes across sessions.
+// ~62 bits of keyed digest as 12 base36 chars - unrelated secrets must not collide on a shared base.
 const HASH_LEN = 12;
 const MAX_FRIENDLY_NAME_LEN = 32;
-// Plain/regex obfuscate matches shorter than this are toned down (never placed
-// behind a reversible placeholder) to avoid redacting small words/fragments.
+// Under-floor matches are never placeheld, to avoid redacting small words/fragments.
 export const MIN_OBFUSCATE_SECRET_LEN = 8;
 
-// Per-process fallback key used when a caller does not supply a persisted
-// per-install key. It is random (never shipped in source), so model-visible
-// placeholders cannot be reversed by dictionary-hashing candidate secrets; it
-// only forgoes cross-session token stability, which the persisted key provides.
+// Fallback key is random per process (no cross-session stability) - never shipped in source.
 let ephemeralPlaceholderKey: string | undefined;
 export function defaultPlaceholderKey(): string {
 	ephemeralPlaceholderKey ??= crypto.randomBytes(32).toString("base64url");
@@ -39,47 +30,31 @@ export function sanitizeSecretFriendlyName(name: string): string | undefined {
 	return sanitized.length > 0 ? sanitized : undefined;
 }
 
-/**
- * Normalize a secret value into the same alnum-only, uppercased shape a
- * friendly-name label or placeholder prefix is sanitized into, so comparing a
- * raw (possibly lowercase/punctuated) secret value against already-sanitized,
- * model-visible text does not miss a case- or separator-only variant. Unlike
- * `sanitizeSecretFriendlyName` this never truncates and never signals "empty"
- * via `undefined` — callers already guard on `.length > 0` before comparing.
- */
+// Same sanitized shape as labels - a raw lowercase/punctuated value compares against visible text.
 export function sanitizeForCollisionCheck(value: string): string {
 	return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
-// A label leaks a secret either by containing the whole normalized secret or,
-// once it reaches the public display cap, by being the secret's visible prefix.
-// Shorter names like "TOKEN" can still be intentional generic labels.
+// A label leaks if it contains the whole secret or, past the display cap, is its visible prefix.
 export function sanitizedLabelCollidesWithSecret(sanitizedLabel: string, sanitizedSecret: string): boolean {
 	if (sanitizedSecret.length === 0) return false;
 	if (sanitizedLabel.includes(sanitizedSecret)) return true;
 	return sanitizedLabel.length >= MAX_FRIENDLY_NAME_LEN && sanitizedSecret.startsWith(sanitizedLabel);
 }
 
-/**
- * Raw secret values plus an index of their collision-normalized forms, so
- * {@link SecretValueSet.collidesWithLabel} answers "does any member leak through
- * this label?" without re-normalizing and scanning every member per label.
- * Callers that pass shared collision values to the obfuscator should build
- * them with this class; a plain `Set` still works but is checked linearly.
- */
+// Index of collision-normalized forms so label-collision tests skip per-member rescans.
 export class SecretValueSet extends Set<string> {
-	/** Normalized value → number of raw members normalizing to it. */
+	// Normalized value → member count.
 	#normalized = new Map<string, number>();
-	/** Normalized length → number of distinct normalized values with that length. */
+	// Normalized length → distinct-value count.
 	#lengths = new Map<number, number>();
-	/** First MAX_FRIENDLY_NAME_LEN chars → normalized values at least that long (display-cap prefix leaks). */
+	// Display-cap prefix → overlapping values (prefix leaks).
 	#heads = new Map<string, Set<string>>();
-	/** Bumped on every effective write when this set is part of an obfuscator's registry. */
+	// Version bump for obfuscator registry cache invalidation.
 	readonly #revision: RegistryRevision | undefined;
 
 	constructor(values?: Iterable<string>, revision?: RegistryRevision) {
-		// Populate after super(): `Set`'s iterable constructor would call `add`
-		// before this subclass's private fields exist.
+		// `Set`'s constructor calls add before subclass fields exist - populate after super().
 		super();
 		this.#revision = revision;
 		if (values) for (const value of values) this.add(value);
@@ -167,25 +142,7 @@ export function labelCollidesWithAnySecret(sanitizedLabel: string, values: Reado
 	return false;
 }
 
-/**
- * Whether an entry needs the persisted placeholder key: either because it can
- * produce a reversible (keyed) obfuscate-mode placeholder, or because a default
- * (no custom `replacement`) replace-mode regex can reach
- * `#generateRegexReplacement`'s key-derived idempotent fallback marker (see
- * `#generateReplacement`) when every same-length candidate re-matches a
- * pathological match-everything config (e.g. `[\s\S]{8}`). That fallback depends
- * on the persisted per-install key — not just length — to stay a fixed point
- * across a process restart; without a persisted key, a fresh install falls back
- * to a process-random key (`defaultPlaceholderKey()`), so the fallback marker
- * would churn across restarts even though the algorithm itself is stable. A
- * regex WITH a custom `replacement` never reaches that fallback (it always emits
- * the literal configured string), and a plain replace secret's replacement is
- * pure content-hash (`#generateSecretReplacement`), so neither needs the key.
- * Short plain obfuscate entries are toned down (never placeheld), so they must
- * NOT force key creation: otherwise a `secret-placeholder.key` file is written
- * and persisted for a config that ends up with no active secrets, leaving the
- * key readable via a tool and reusable for later placeholders.
- */
+// Key needed iff a reversible placeholder can still reach the obfuscate pass after the replace phase; avoid writing the key file for replace-only configs.
 export function secretEntryNeedsPlaceholderKey(entry: SecretEntry): boolean {
 	if ((entry.mode ?? "obfuscate") === "obfuscate") {
 		if (entry.type === "regex") return true;
@@ -194,27 +151,13 @@ export function secretEntryNeedsPlaceholderKey(entry: SecretEntry): boolean {
 	return entry.type === "regex" && entry.replacement === undefined;
 }
 
-/**
- * Whether a plain replace-mode replacement string can contribute a fragment that
- * helps the replace phase reconstruct an obfuscate `content`. During obfuscate()'s
- * replace phase the output is a tiling of passthrough bytes (adversary-controlled
- * provider text) and whole replacement outputs; any contiguous occurrence of
- * `content` in that output is covered by interior replacement tiles (each a
- * substring of `content`) bordered by passthrough at the ends, where the border
- * tile may be a suffix of a replacement (forming `content`'s prefix) or a prefix
- * of a replacement (forming `content`'s suffix). An EMPTY replacement deletes its
- * trigger entirely, joining the passthrough on both sides; with adversary-chosen
- * surrounding bytes that can form any non-empty `content` across the deleted gap.
- * So a replacement can help iff it is empty, is a substring of `content`,
- * contains `content`, or shares such a border overlap.
- */
+// Does a replacement help retile `content` (empty/substring/superstring/border)? Drives key necessity.
 function replacementCanFormContent(replacement: string, content: string): boolean {
 	if (replacement.length === 0) return content.length > 0;
 	if (content.includes(replacement) || replacement.includes(content)) return true;
 	const maxOverlap = Math.min(replacement.length, content.length);
 	for (let k = 1; k <= maxOverlap; k++) {
-		// A suffix of the replacement forms the prefix of the content (left border),
-		// or a prefix of the replacement forms the suffix of the content (right border).
+		// Border case: replacement suffix forms content prefix, or prefix forms content suffix.
 		if (content.startsWith(replacement.slice(replacement.length - k)) || content.endsWith(replacement.slice(0, k))) {
 			return true;
 		}
@@ -222,34 +165,7 @@ function replacementCanFormContent(replacement: string, content: string): boolea
 	return false;
 }
 
-/**
- * Whether a SET of entries needs the persisted placeholder key. `obfuscate()`
- * applies plain replace-mode mappings before the plain-obfuscate pass, so a plain
- * obfuscate entry only emits a reversible (keyed) placeholder when its content can
- * still appear AFTER the replace phase. When no obfuscate entry can ever produce a
- * placeholder, the persisted key must NOT be required/created — otherwise an
- * effectively replace-only secret set still writes `secret-placeholder.key` and
- * fails startup when the agent config dir is unwritable.
- *
- * The decision models the replace phase as the obfuscator actually runs it:
- * replace mappings are content-keyed (later duplicate wins) and applied in
- * descending content-length order; for a fresh probe (no prior placeholders) that
- * phase is plain sequential substring replacement. A plain obfuscate entry needs
- * the key when its content survives that simulated phase (direct typing) OR when
- * any effective replacement can form the content via tiling — a substring,
- * wholesale superstring, or prefix/suffix border that joins with surrounding
- * passthrough bytes (see `replacementCanFormContent`). This covers direct
- * shadowing (`SECRET -> safe`), reintroduction, duplicate ordering, transitive
- * chains, and context-joined fragments uniformly. Default (omitted) replacements
- * are deterministic, length-preserving, and distinct, so a same-content shadow
- * with no other interacting replacement stays key-free.
- * Replacement outputs are themselves rewritten by every later (shorter-content)
- * replacement before the plain-obfuscate pass sees them, so a fragment that a
- * subsequent replacement erases (`AA -> SEC` then `S -> X` turns every `SEC` into
- * `XEC`) no longer forces the key. Surrounding bytes stay modeled as arbitrary
- * passthrough, so testing the surviving fragment only drops false positives and
- * never under-approximates a real key need.
- */
+// Simulates the replace phase (content-keyed, descending length) to decide if any obfuscate entry can still produce a keyed placeholder.
 export function secretEntriesNeedPlaceholderKey(entries: SecretEntry[]): boolean {
 	const replaceMap = new Map<string, string>();
 	for (const entry of entries) {
@@ -260,10 +176,7 @@ export function secretEntriesNeedPlaceholderKey(entries: SecretEntry[]): boolean
 		);
 	}
 	const replacePhase = [...replaceMap].sort((a, b) => b[0].length - a[0].length);
-	// Apply the replace phase from `start` onward. The phase runs in descending
-	// content-length order, so a replacement output emitted at index i is rewritten
-	// only by the later (shorter-content) replacements at i+1…; `start` 0 models a
-	// value typed directly into the input.
+	// Simulate replace phase from `start`; later (shorter) replacements rewrite earlier outputs.
 	const applyReplacePhaseFrom = (text: string, start: number): string => {
 		let result = text;
 		for (let i = start; i < replacePhase.length; i++) {
@@ -273,19 +186,11 @@ export function secretEntriesNeedPlaceholderKey(entries: SecretEntry[]): boolean
 	};
 	return entries.some((entry) => {
 		if (!secretEntryNeedsPlaceholderKey(entry)) return false;
-		// Regex obfuscate entries match dynamically; conservatively require the key.
+		// Regex obfuscate entries can always match - require the key.
 		if (entry.type !== "plain") return true;
 		const content = entry.content;
 		if (applyReplacePhaseFrom(content, 0).includes(content)) return true;
-		// Test each replacement output in the form it SURVIVES the rest of the phase,
-		// so a fragment a later replacement erases no longer forces the key. The
-		// content it tiles into must also survive those later replacements: if a
-		// shorter-content replacement rewrites the surrounding passthrough bytes
-		// (e.g. `AA -> SEC` forms `SEC`+`RET12`, then `R -> X` turns the freshly
-		// formed `SECRET12` into `SECXET12`), the content can never reach the
-		// obfuscate pass, so the key is not needed. Requiring content stability only
-		// drops such false positives — a formation that genuinely survives is still
-		// caught at the replacement index that produces it.
+		// Only fragments that survive later replacements can force the key.
 		return replacePhase.some(
 			([, replacement], i) =>
 				applyReplacePhaseFrom(content, i + 1) === content &&
@@ -294,10 +199,7 @@ export function secretEntriesNeedPlaceholderKey(entries: SecretEntry[]): boolean
 	});
 }
 
-// Derive the model-visible base from a KEYED digest of the secret. xxHash is
-// fast and unkeyed, so a fixed-seed content hash of a low-entropy secret could
-// be dictionaried from the transcript; HMAC-SHA256 under a private per-install
-// key cannot, since the attacker lacks the key.
+// HMAC-SHA256 under the per-install key - unkeyed hashes of low-entropy secrets would be dictionaried.
 export function buildHashBase(key: string, value: string): string {
 	// PORTED: Bun.CryptoHasher -> node:crypto createHmac (pi ships Node SEA builds).
 	const digest = crypto.createHmac("sha256", key).update(value).digest();
@@ -312,12 +214,7 @@ export function buildHashBase(key: string, value: string): string {
 	return tag;
 }
 
-// Build a deterministic, key-derived run of REPLACEMENT_CHARS of the given
-// length. Used to redact a per-chunk replace remainder to a marker that depends
-// only on the per-install key and the remainder length, so a fresh obfuscator
-// reproduces the identical marker (idempotent redaction across restarts) while
-// the run stays unpredictable without the key (raw sentinel-shaped bytes cannot
-// equal the marker, so they are still redacted rather than passed through).
+// Key-derived marker run: idempotent across restarts, unpredictable without the key.
 export function buildKeyedReplacementRun(key: string, length: number): string {
 	if (length <= 0) return "";
 	const radix = REPLACEMENT_CHARS.length;
@@ -372,8 +269,7 @@ export function buildPlaceholder(hint: PlaceholderCaseHint | undefined, base: st
 export const PLACEHOLDER_RE = /\$\$(?:[A-Z0-9]+_)?[A-Z0-9]{4,}(?::[ULCM])?\$\$/g;
 
 export function resumePlaceholderScanAfterRejectedCandidate(match: RegExpExecArray): void {
-	// RegExp#exec does not find overlapping matches. Restart at the rejected
-	// candidate's closing delimiter, which can open an immediately adjacent placeholder.
+	// Restart at the rejected candidate's closing delimiter - it can open an adjacent placeholder.
 	PLACEHOLDER_RE.lastIndex = match.index + match[0].length - 2;
 }
 
@@ -394,10 +290,7 @@ export function lookupFriendlyPlaceholderAlias(
 
 const PENDING_PLACEHOLDER_SUFFIX_RE = /(?:\$\$(?:[A-Z0-9]+_)?[A-Z0-9]*(?::[ULCM]?)?|\$)$/;
 
-// Withhold a trailing run that could be the start of a placeholder from streamed
-// deltas, so a partial token is never emitted before deobfuscation can replace
-// it. A lone trailing delimiter character is always buffered because it can open
-// a placeholder; the final non-streamed flush re-emits it when no token follows.
+// Buffer trailing delimiters so a partial placeholder token is never emitted before deobfuscation.
 export function stripPendingSecretPlaceholderSuffix(text: string): string {
 	const pendingPlaceholderStart = text.match(PENDING_PLACEHOLDER_SUFFIX_RE);
 	if (pendingPlaceholderStart?.index === undefined) return text;
