@@ -1,0 +1,9 @@
+Architecture.md
+justfile
+tsconfig.json
+biome.json
+test/
+.agents/
+.vscode/
+.github/
+.nvim/

@@ -1,0 +1,50 @@
+{
+	"name": "pi-secrets",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "A pi extension that reversibly obfuscates credentials before they reach the provider: keyed $$PLACEHOLDER$$ substitution, built-in credential patterns, and a user secrets.yml for custom redaction. A port of OMP's secrets module onto vanilla pi's extension events.",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"agent",
+		"secrets",
+		"redaction",
+		"security"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/k3-2o/pi-secrets.git"
+	},
+	"homepage": "https://github.com/k3-2o/pi-secrets",
+	"bugs": {
+		"url": "https://github.com/k3-2o/pi-secrets/issues"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"dependencies": {
+		"yaml": "^2.8.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.5",
+		"@earendil-works/pi-ai": "1.1.0",
+		"@earendil-works/pi-agent-core": "1.1.0",
+		"@earendil-works/pi-coding-agent": "1.1.0",
+		"@types/node": "^22.0.0",
+		"knip": "^6.32.0",
+		"typescript": "^5.6.0"
+	},
+	"files": [
+		"index.ts",
+		"src",
+		"docs",
+		"README.md",
+		"LICENSE"
+	]
+}
