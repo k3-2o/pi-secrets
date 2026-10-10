@@ -37,7 +37,7 @@
 1. Install the extension as a pi package:
 
    ```bash
-   pi install npm:@k3-2o/pi-secrets                # published on npm
+   pi install npm:@k3_2o/pi-secrets                # published on npm
    pi install git:github.com/k3-2o/pi-secrets   # straight from the repo
    pi install ./pi-secrets                  # local checkout
    ```
