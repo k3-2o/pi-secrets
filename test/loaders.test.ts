@@ -6,6 +6,7 @@ import {
 	buildSecretObfuscator,
 	builtinCredentialSecretEntries,
 	collectEnvSecrets,
+	getExistingSecretPlaceholderKey,
 	getSecretPlaceholderKey,
 	loadSecrets,
 } from "../src/secrets";
@@ -75,6 +76,16 @@ describe("loadSecrets - secrets.yml merge", () => {
 
 	test("no files → empty list", async () => {
 		expect(await loadSecrets(cwd, agentDir)).toEqual([]);
+	});
+
+	test("unparseable YAML fails closed (throws, never silent [])", async () => {
+		fs.writeFileSync(path.join(agentDir, "secrets.yml"), "::: not yaml [[[");
+		await expect(loadSecrets(cwd, agentDir)).rejects.toThrow();
+	});
+
+	test("scalar root (not an array) fails closed", async () => {
+		fs.writeFileSync(path.join(agentDir, "secrets.yml"), "just-a-string");
+		await expect(loadSecrets(cwd, agentDir)).rejects.toThrow();
 	});
 
 	test("invalid entries are skipped with warnings, valid ones load", async () => {
@@ -166,6 +177,20 @@ describe("placeholder key lifecycle", () => {
 			expect(hidden2).toBe(hidden);
 		} finally {
 			restoreEnv(saved);
+		}
+	});
+
+	test("corrupt key file is reported as corrupt, not collapsed to missing (E2)", async () => {
+		const saved2 = scrubSecretEnv();
+		try {
+			const keyPath = path.join(agentDir, "secret-placeholder.key");
+			fs.writeFileSync(keyPath, "not-a-valid-key!!!");
+			const result = await getExistingSecretPlaceholderKey(agentDir);
+			expect(result.key).toBeUndefined();
+			expect(result.corrupt).toBeInstanceOf(Error);
+			await expect(buildSecretObfuscator(cwd, agentDir, agentDir)).rejects.toThrow(/corrupt/);
+		} finally {
+			restoreEnv(saved2);
 		}
 	});
 });

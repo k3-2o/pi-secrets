@@ -49,6 +49,37 @@ describe("at-rest - shape redaction (unknown-shaped spans → bullets)", () => {
 		expect(redactShapes('KEY="$$WIRING_0UX60MSBVKK4:L$$"')).toBe('KEY="$$WIRING_0UX60MSBVKK4:L$$"');
 		expect(redactShapes("no secrets at all")).toBe("no secrets at all");
 	});
+
+	test("keyword ending a word does not gate: monkey, bypass, whiskey stay raw", () => {
+		expect(redactShapes("monkey=e347a175cc0a6526c29654610a3a2add56e1aec4")).toBe(
+			"monkey=e347a175cc0a6526c29654610a3a2add56e1aec4",
+		);
+		expect(redactShapes("bypass=on")).toBe("bypass=on");
+		expect(redactShapes("whiskey=bottle")).toBe("whiskey=bottle");
+		expect(redactShapes("TURKEY_KEY=slim")).toBe("TURKEY_KEY=slim");
+	});
+
+	test("camelCase and underscore-prefixed secret names still gate", () => {
+		// apiKey/userKey (camel hump), _pass (underscore) - over the floor so they redact
+		expect(redactShapes("apiKey=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
+			"apiKey=e347a175cc0a6526c29654610a3a2add56e1aec4",
+		);
+		expect(redactShapes("userKey=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
+			"userKey=e347a175cc0a6526c29654610a3a2add56e1aec4",
+		);
+		expect(redactShapes("_pass=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
+			"_pass=e347a175cc0a6526c29654610a3a2add56e1aec4",
+		);
+		expect(redactShapes("SERPER_API_KEY=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
+			"SERPER_API_KEY=e347a175cc0a6526c29654610a3a2add56e1aec4",
+		);
+	});
+
+	test("below-floor values stay raw even behind a gated name (key=lambda kwargs)", () => {
+		expect(redactShapes("results.sort(key=lambda r: r.size)")).toBe("results.sort(key=lambda r: r.size)");
+		expect(redactShapes("token_count = 42")).toBe("token_count = 42");
+		expect(redactShapes("AUTH_TYPE=none")).toBe("AUTH_TYPE=none");
+	});
 });
 
 describe("at-rest - scrubString ordering (registered values stay reversible)", () => {
@@ -98,11 +129,12 @@ describe("at-rest - scrubToolResult composite", () => {
 		expect(JSON.stringify(out)).not.toContain("••••••");
 	});
 
-	test("below-floor assignment values still bullet (nothing to capture)", () => {
+	test("below-floor assignment values stay raw (same floor as capture)", () => {
 		const out = scrubToolResult(obfuscator, {
 			content: [{ type: "text", text: "API_TOKEN=short" }],
 		});
-		expect(JSON.stringify(out)).toContain("••••••");
+		// below-floor: nothing changes, so the scrub is a no-op (undefined per contract)
+		expect(out).toBeUndefined();
 	});
 });
 

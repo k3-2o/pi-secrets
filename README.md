@@ -23,8 +23,8 @@
 - **Learn-on-first-sight.** A `KEY=value` line or URL password that is not registered yet
   is captured the first time it appears and hashed like any registered secret. No
   `secrets.yml` entry needed.
-- **One-way bullets are rare.** Credential-named assignment values too short to capture
-  (under 8 chars) become `••••••` in tool output; they are never reversible.
+- **One-way bullets match capture.** Credential-named assignment values under the 8-char
+  capture floor stay raw entirely; bullets and capture share one length gate.
 - **Hash morphing done right.** `$$NAME_HASH:HINT$$` placeholders are HMAC-keyed per
   install: deterministic (provider prompt-cache stable), unforgeable, and undictionaryable
   without your key file.
@@ -92,10 +92,9 @@ contains a credential-*named* assignment (`API_KEY=…`) or a connection-URL pas
 pi-secrets **auto-captures** the value on first sight. It registers the value
 session-scoped and hashes it, so it becomes editable exactly like a registered value
 (two-way round-trip). A bare value in prose that matches no name gate and no
-built-in shape stays raw. That is the honest boundary. One-way bullets (`••••••`)
-remain only for spans too short to capture; such spans are intentionally immutable
-via edit tools (the exact-old-string lockout): protection outweighs editability for
-values too small to be useful.
+built-in shape stays raw. That is the honest boundary. Values under the 8-char floor
+stay raw everywhere (capture and the bullet net share one length gate); one-way
+bullets never apply to assignments.
 
 Ways the agent can still touch such a file, honestly:
 
@@ -115,7 +114,7 @@ Ways the agent can still touch such a file, honestly:
 
 Credential shapes are matched automatically, in four groups:
 
-- **Git & CI:** GitHub (`ghp_`, `gho_`, `github_pat_`), GitLab (`glpat-`), npm, Bitbucket
+- **Git & CI:** GitHub (`ghp_`, `gho_`, `github_pat_`), GitLab (`glpat-`), npm
 - **Cloud & AI:** AWS (`AKIA`/`ASIA`), Google (`AIza`), OpenAI (`sk-`, `sk-proj-`, `sk-ant-`), HuggingFace (`hf_`)
 - **Payments & comms:** Stripe (`sk_`/`rk_live`/`rk_test`, `whsec_`), SendGrid (`SG.`), Twilio (`SK`+32 hex)
 - **More:** Slack (`xox*`), JWTs (`eyJ…`), `Bearer …` tokens, PEM private-key blocks, Shopify (`shpat_`/`shpca_`/`shppa_`), Postman (`PMAK-`), Pulumi (`pul-`), DigitalOcean (`dop_v1_`), Grafana Cloud (`glc_`), Alibaba (`LTAI`)

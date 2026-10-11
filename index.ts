@@ -22,9 +22,13 @@ type ContentBlock = Extract<AgentMessage, { role: "toolResult" }>["content"][num
 
 const FLAG = "secrets";
 
-/** How many characters of bash output are held back before emitting, so a
- * secret spanning a chunk boundary is still scrubbed in one piece. */
+/** How many characters of bash output are held back before emitting, so a secret spanning a chunk boundary is still scrubbed in one piece. */
 const BASH_HOLD = 1024;
+
+// PEM opener in buffer: hold output until END arrives so a straddling key is scrubbed whole.
+const BASH_PEM_OPEN = "-----BEGIN ";
+const BASH_PEM_CLOSE = "-----END ";
+const BASH_PEM_MAX = 32 * 1024;
 
 interface SessionState {
 	obfuscator: SecretObfuscator | undefined;
@@ -37,32 +41,53 @@ function scrubBashOperations(obfuscator: SecretObfuscator): BashOperations {
 	const local = createLocalBashOperations();
 	return {
 		exec: (command, cwd, options) => {
-			let buffer = "";
-			const send = (chunk: string): void => {
+			// Buffer raw bytes, emit originals untouched when nothing secret-shaped was found (binary-safe).
+			let buffer = Buffer.alloc(0);
+			let holdOpen = false;
+			const sendRaw = (chunk: Buffer): void => {
 				if (chunk.length === 0) return;
-				options.onData(Buffer.from(scrubText(obfuscator, chunk)));
+				const text = chunk.toString("utf8");
+				const scrubbed = scrubText(obfuscator, text);
+				options.onData(scrubbed === text ? chunk : Buffer.from(scrubbed));
 			};
 			return local
 				.exec(command, cwd, {
 					...options,
 					onData: (data) => {
-						buffer += data.toString("utf8");
-						const emitLength = buffer.length - BASH_HOLD;
-						if (emitLength > 0) {
-							send(buffer.slice(0, emitLength));
-							buffer = buffer.slice(emitLength);
+						buffer = Buffer.concat([buffer, data]);
+						const text = buffer.toString("utf8");
+						const hasOpen = text.includes(BASH_PEM_OPEN);
+						if (hasOpen && !holdOpen) holdOpen = true;
+						if (holdOpen) {
+							if (text.includes(BASH_PEM_CLOSE)) {
+								holdOpen = false;
+								sendRaw(buffer);
+								buffer = Buffer.alloc(0);
+							} else if (buffer.length > BASH_PEM_MAX) {
+								const emitLength = buffer.length - BASH_HOLD;
+								if (emitLength > 0) {
+									sendRaw(buffer.subarray(0, emitLength));
+									buffer = buffer.subarray(emitLength);
+								}
+							}
+						} else {
+							const emitLength = buffer.length - BASH_HOLD;
+							if (emitLength > 0) {
+								sendRaw(buffer.subarray(0, emitLength));
+								buffer = buffer.subarray(emitLength);
+							}
 						}
 					},
 				})
 				.then((result) => {
-					send(buffer);
-					buffer = "";
+					sendRaw(buffer);
+					buffer = Buffer.alloc(0);
+					holdOpen = false;
 					return result;
 				});
 		},
 	};
 }
-
 export default function (pi: ExtensionAPI): void {
 	// CLI override: `--secrets` forces the feature on/off for a session.
 	pi.registerFlag(FLAG, {
@@ -80,8 +105,26 @@ export default function (pi: ExtensionAPI): void {
 			state = { obfuscator: undefined };
 			return;
 		}
-		const obfuscator = await buildSecretObfuscator(ctx.cwd, agentDir);
+		// An invalid secrets config fails closed: session starts with protection off.
+		let obfuscator: SecretObfuscator | undefined;
+		try {
+			obfuscator = await buildSecretObfuscator(ctx.cwd, agentDir);
+		} catch (err) {
+			console.error(
+				`[pi-secrets] FAILED to load secrets config (${String(err)}). Extension OFF for this session - no secrets are protected.`,
+			);
+			state = { obfuscator: undefined };
+			return;
+		}
 		state = { obfuscator };
+	});
+
+	// System prompt side-note: model sees placeholders without a theory of what they are.
+	pi.on("before_agent_start", (event) => {
+		if (!state.obfuscator?.hasSecrets()) return undefined;
+		return {
+			systemPrompt: `${event.systemPrompt}\n\nA secret obfuscator is active in this session; secrets may appear in tool output or user input as $$LIKE_THIS$$ or •••••• placeholders.`,
+		};
 	});
 
 	// Outbound net: hide every secret-shaped value before the provider call.

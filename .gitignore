@@ -7,3 +7,12 @@ dist/
 AGENTS.md
 .agents/
 .vscode/
+# secrets
+secrets.yml
+.piens.env
+.env
+.env.*
+**/secrets.yml
+**/.env
+*.key
+*.pem

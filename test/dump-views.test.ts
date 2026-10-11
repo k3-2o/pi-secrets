@@ -12,6 +12,21 @@ function obf(entries: { content: string; mode?: "obfuscate" | "replace" }[] = []
 }
 
 describe("phase 10 - dump-format decode views", () => {
+	test("xxd ascii column of an unknown credential-named assignment folds (capture path)", () => {
+		const o = obf();
+		// Real `xxd file` output for `export SERPER_API_KEY="e347a175c0a6526c29654610a3a2add56e1aec4"\n`.
+		// Multi-line: name and value wrap across 16-byte rows; the ascii column holds the raw chars.
+		const xxd =
+			"00000000: 6578 706f 7274 2053 4552 5045 525f 4150  export SERPER_AP\n" +
+			'00000010: 495f 4b45 593d 2265 3334 3761 3137 3563  I_KEY="e347a175c\n' +
+			"00000020: 6330 6136 3532 3663 3239 3635 3436 3130  c0a6526c29654610\n" +
+			'00000030: 6133 6132 6164 6435 3665 3161 6563 3422  a3a2add56e1aec4"\n' +
+			"00000040: 0a                                            .\n";
+		const out = scrubString(o, xxd);
+		expect(out).not.toContain("e347a175cc0a6526c29654610a3a2add56e1aec4");
+		expect(out).toContain("$$");
+	});
+
 	test("od -c of a credential line is captured and hashed", () => {
 		const o = obf();
 		const dump =
@@ -77,5 +92,34 @@ describe("phase 10 - dump-format decode views", () => {
 		const once = scrubString(o, dump);
 		const twice = scrubString(o, once);
 		expect(twice).toBe(once);
+	});
+});
+describe("session-proven dump shapes", () => {
+	const VAL = "x1234567890x1234567890x1234567890";
+	test("char-per-line [x] NN loop (turn-25 shape) folds to a hash", () => {
+		const o = obf();
+		const body = `SERPER_API_KEY="${VAL}"`;
+		const dump = [...body].map((c) => "  [" + c + "] " + c.charCodeAt(0).toString(16).toUpperCase()).join("\n");
+		const out = scrubString(o, dump);
+		expect(out.includes(VAL)).toBe(false);
+		expect([...out].filter((c) => c === "$").length).toBeGreaterThanOrEqual(2);
+	});
+	test("address-suppressed od hexdump (turn-27 shape) folds to a hash", () => {
+		const o = obf();
+		const src = `export TEST_KEY="${VAL}"`;
+		const hex = [...src].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"));
+		let od = "";
+		for (let i = 0; i < hex.length; i += 8) {
+			const row = hex.slice(i, i + 8);
+			od += row.join(" ") + "   " + row.map((h) => String.fromCharCode(parseInt(h, 16))).join("") + "\n";
+		}
+		const out = scrubString(o, od);
+		expect(out.includes(VAL)).toBe(false);
+		expect([...out].filter((c) => c === "$").length).toBeGreaterThanOrEqual(2);
+	});
+	test("prose with inline [a] 61 stays untouched", () => {
+		const o = obf();
+		const prose = "some [a] 61 and [b] 62 words here";
+		expect(scrubString(o, prose)).toBe(prose);
 	});
 });

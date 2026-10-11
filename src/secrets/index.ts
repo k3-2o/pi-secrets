@@ -62,20 +62,18 @@ export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> 
 	}
 }
 
-/** Return an existing placeholder key for redaction without creating a new key file. */
-export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<string | undefined> {
+/** Load an existing placeholder key; corrupt is reported separately from missing. */
+export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<{ key?: string; corrupt?: Error }> {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
-	if (cached !== undefined) return cached;
-	// Redaction-only load (no minting): a corrupt/unreadable key must not block startup, nor is there anything sensitive to redact.
-	let existing: string | undefined;
+	if (cached !== undefined) return { key: cached };
 	try {
-		existing = await readPlaceholderKeyFile(keyPath, true);
-	} catch {
-		return undefined;
+		const key = await readPlaceholderKeyFile(keyPath, true);
+		if (key !== undefined) cachedPlaceholderKeys.set(keyPath, key);
+		return { key };
+	} catch (err) {
+		return { corrupt: err instanceof Error ? err : new Error(String(err)) };
 	}
-	if (existing !== undefined) cachedPlaceholderKeys.set(keyPath, existing);
-	return existing;
 }
 
 // Process-stable fallback when the key file can't be persisted; loses cross-session stability only.
@@ -235,9 +233,12 @@ export async function buildSecretObfuscator(
 	// (plain literals, custom regexes) take precedence in the scan order.
 	const allEntries = [...envEntries, ...fileEntries, ...builtinCredentialSecretEntries()];
 	const needsPlaceholderKey = secretEntriesNeedPlaceholderKey([...envEntries, ...fileEntries]);
-	const placeholderKey = needsPlaceholderKey
-		? await getSecretPlaceholderKey(keyDir)
-		: await getExistingSecretPlaceholderKey(keyDir);
+	// A persisted-but-corrupt key fails closed; a missing key falls to the lazy create path.
+	const existing = await getExistingSecretPlaceholderKey(keyDir);
+	if (existing.corrupt !== undefined) {
+		throw new Error(`secret placeholder key exists but is corrupt: ${existing.corrupt.message}`);
+	}
+	const placeholderKey = needsPlaceholderKey ? await getSecretPlaceholderKey(keyDir) : existing.key;
 	let obfuscator: SecretObfuscator | undefined;
 	if (allEntries.length > 0) {
 		obfuscator = new SecretObfuscator(allEntries, placeholderKey ?? (() => getSecretPlaceholderKeySync(keyDir)));
@@ -253,8 +254,7 @@ async function loadSecretsFile(filePath: string): Promise<SecretEntry[]> {
 		const text = await fs.promises.readFile(filePath, "utf8");
 		const raw = parseYaml(text);
 		if (!Array.isArray(raw)) {
-			logger.warn("secrets.yml must be a YAML array", { path: filePath });
-			return [];
+			throw new Error(`${filePath} must be a YAML array (got ${typeof raw})`);
 		}
 		const entries: SecretEntry[] = [];
 		for (let i = 0; i < raw.length; i++) {
@@ -273,8 +273,8 @@ async function loadSecretsFile(filePath: string): Promise<SecretEntry[]> {
 		return entries;
 	} catch (err) {
 		if (isEnoent(err)) return [];
-		logger.warn("Failed to load secrets.yml", { path: filePath, error: String(err) });
-		return [];
+		// Non-ENOENT (bad YAML, unreadable) fails the session closed - never silent partial protection.
+		throw new Error(`Failed to load ${filePath}: ${String(err)}`, { cause: err });
 	}
 }
 

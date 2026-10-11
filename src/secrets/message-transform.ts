@@ -10,37 +10,6 @@ type AssistantContent = Extract<AgentMessage, { role: "assistant" }>["content"];
 type ContentBlocks = Extract<AgentMessage, { role: "toolResult" }>["content"];
 type UserFacingMessage = Extract<AgentMessage, { role: "user" | "toolResult" }>;
 
-/** Reveal in assistant-authored content only; user/tool-result roles are never walked so operator-shaped text survives. */
-export function deobfuscateAgentMessages(obfuscator: SecretObfuscator, messages: AgentMessage[]): AgentMessage[] {
-	const deob = (text: string): string => obfuscator.deobfuscate(text);
-	let changed = false;
-	const result = messages.map((message): AgentMessage => {
-		switch (message.role) {
-			case "assistant": {
-				const content = deobfuscateAssistantContent(obfuscator, message.content);
-				if (content === message.content) return message;
-				changed = true;
-				return { ...message, content };
-			}
-			case "branchSummary": {
-				const summary = deob(message.summary);
-				if (summary === message.summary) return message;
-				changed = true;
-				return { ...message, summary };
-			}
-			case "compactionSummary": {
-				const summary = deob(message.summary);
-				if (summary === message.summary) return message;
-				changed = true;
-				return { ...message, summary };
-			}
-			default:
-				return message;
-		}
-	});
-	return changed ? result : messages;
-}
-
 /** Restore placeholders in assistant text and tool-call arguments (thinking passes through byte-identical). */
 export function deobfuscateAssistantContent(obfuscator: SecretObfuscator, content: AssistantContent): AssistantContent {
 	if (!obfuscator.hasSecrets()) return content;
@@ -74,23 +43,6 @@ export function deobfuscateToolArguments(
 	return mapJsonStrings(args as JsonValue, (s) => obfuscator.deobfuscate(s)) as Record<string, unknown>;
 }
 
-/** Redact secrets inside a tool call's arguments (same JSON-walk exception as {@link deobfuscateToolArguments}). */
-export function obfuscateToolArguments(
-	obfuscator: SecretObfuscator,
-	args: Record<string, unknown>,
-	sharedRegexSecretValues?: ReadonlySet<string>,
-): Record<string, unknown> {
-	if (!obfuscator.hasSecrets()) return args;
-	// `batch()` joins an outer batch when one is already open.
-	return obfuscator.batch(() => {
-		const regexSecretValues = sharedRegexSecretValues ?? collectJsonRegexSecretValues(obfuscator, args as JsonValue);
-		return mapJsonStrings(args as JsonValue, (s) => obfuscator.obfuscate(s, regexSecretValues)) as Record<
-			string,
-			unknown
-		>;
-	});
-}
-
 /** Obfuscate `text` blocks of a content array; image and other blocks pass through. */
 function obfuscateTextBlocks(
 	obfuscator: SecretObfuscator,
@@ -101,20 +53,6 @@ function obfuscateTextBlocks(
 	const result = content.map((block): ContentBlocks[number] => {
 		if (block.type !== "text") return block;
 		const text = obfuscator.obfuscate(block.text, sharedRegexSecretValues);
-		if (text === block.text) return block;
-		changed = true;
-		return { ...block, text };
-	});
-	return changed ? result : content;
-}
-
-/** Restore placeholders in `text` blocks of a content array; image and other blocks pass through. */
-export function deobfuscateTextBlocks(obfuscator: SecretObfuscator, content: ContentBlocks): ContentBlocks {
-	if (!obfuscator.hasSecrets()) return content;
-	let changed = false;
-	const result = content.map((block): ContentBlocks[number] => {
-		if (block.type !== "text") return block;
-		const text = obfuscator.deobfuscate(block.text);
 		if (text === block.text) return block;
 		changed = true;
 		return { ...block, text };

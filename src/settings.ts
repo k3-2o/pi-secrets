@@ -11,18 +11,15 @@ export interface SecretsSettings {
 
 const DEFAULTS: SecretsSettings = { enabled: false };
 
-/** Legacy `secrets.mode` values, kept only to ignore them explicitly. */
-type LegacyMode = "persist" | "render";
-
 function normalize(raw: unknown): SecretsSettings | undefined {
 	if (raw === null || typeof raw !== "object") return undefined;
 	const record = raw as Record<string, unknown>;
 	const result: SecretsSettings = { ...DEFAULTS };
 	if (typeof record.enabled === "boolean") result.enabled = record.enabled;
-	// Silently tolerate the legacy `mode` key so old settings files keep working.
 	if (record.mode === "persist" || record.mode === "render") {
-		const _legacy: LegacyMode = record.mode;
-		void _legacy;
+		console.warn(
+			"pi-secrets: the legacy secrets.mode setting is ignored; there is one behavior now (at-rest hashing everywhere, reveal in the interactive terminal only).",
+		);
 	}
 	return result;
 }

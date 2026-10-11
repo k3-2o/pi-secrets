@@ -189,9 +189,6 @@ export class SecretObfuscator {
 	/** Whether any secrets were configured */
 	#hasAny: boolean;
 
-	/** Outbound obfuscation switch (`secrets.enabled`); deobfuscation stays active either way. */
-	#obfuscating = true;
-
 	// Per-install (or per-process fallback) key, resolved lazily on first mint so the key file isn't persisted until needed.
 	#key: string | undefined;
 	#keyProvider: (() => string) | undefined;
@@ -387,14 +384,9 @@ export class SecretObfuscator {
 		return true;
 	}
 
-	/** Whether outbound text is currently obfuscated: secrets exist and obfuscation is switched on. */
+	/** Whether outbound text is currently obfuscated. */
 	obfuscates(): boolean {
-		return this.#hasAny && this.#obfuscating;
-	}
-
-	// Off = outbound identity, but placeholders minted earlier keep deobfuscating.
-	setObfuscating(enabled: boolean): void {
-		this.#obfuscating = enabled;
+		return this.#hasAny;
 	}
 
 	/** Obfuscate all secrets in text. Bidirectional placeholders for obfuscate mode, one-way for replace. */

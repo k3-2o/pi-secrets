@@ -16,8 +16,8 @@ pi-secrets stops both at the source:
   message class the extension can reach.
 
 What the model receives, and what the file stores, is a keyed placeholder
-(`$$NAME_HASH:HINT$$`). One-way bullets remain only for spans too short to capture.
-
+(`$$NAME_HASH:HINT$$`). One-way bullets remain for credential-shaped spans the capture
+floor does not take, such as connection-URL passwords.
 This is a reduction of exposure, not a sandbox. The model still executes tools with
 user permissions. If it deliberately writes a credential to disk or to a
 network endpoint, it can only do so with the placeholder it saw, not the real value.
@@ -31,6 +31,7 @@ network endpoint, it can only do so with the placeholder it saw, not the real va
 | Tool execution | `tool_call` handler deobfuscates arguments in place, immediately before the tool runs | `edit(old="…")` matches real bytes on disk; commands run with real env values |
 | Human display | The markdown transformer reveals user + assistant text at paint time in the interactive transcript | You see the real key when you or the model reference a placeholder |
 | Secret-shaped but unregistered text | `NAME=value` assignments with credential names and `scheme://user:password@host` URL passwords are **auto-captured** on first sight and registered session-scoped, hashed (`$$HASH$$`, reversible) | Values nobody registered cannot ride tool output into the file or the model; a manual `secrets.yml` entry is only needed for values that never appear in assignment/URL form |
+| Dump formats | `od -c`, `hexdump`/`xxd`, and `base64` output that fragments a value into spaced chars, hex pairs, or base64 is folded back before detection | Default dump tools cannot hide a secret; the folded value is hashed like any other |
 | Placeholder forgery | The deobfuscation map only accepts placeholders minted by this obfuscator under the per-install key | A model inventing `$$FAKE$$` text gets nothing back |
 | Transcript attacks | Placeholder digests are HMAC-SHA256 under a 32-byte per-install key (`secret-placeholder.key`, mode `0600`) | A transcript reader cannot dictionary-hash a placeholder back to a secret |
 | The key file itself | The key file content is registered as a `replace`-mode secret | A model reading the key file via a tool ships a marker, not the key |
@@ -41,16 +42,11 @@ placeholder, and the tool receives the real value.
 
 ## What is not protected
 
-- **Deliberate exfiltration.** A tool that explicitly writes or sends data is not blocked.
-  A model acting in the same turn as a tool output can use a value before it is hashed.
-  This reduces accidental and injection-driven leakage, not deliberate exfiltration.
-
-  This includes deliberately fragmenting a value. `od -c`, `hexdump`/`xxd`, and
-  `base64` output is folded back before detection, so those default dump formats
-  are caught. But arbitrary transforms are out of scope: rot13, xor, python
-  one-liners, splitting a value across two reads. The number of transforms is
-  unbounded, and a model that runs one is deliberately exfiltrating, which
-  sandboxing (deny host access) owns, not redaction.
+- **Deliberate exfiltration.** A tool that explicitly writes or sends data is not
+  blocked. This reduces accidental and injection-driven leakage, not a model that is
+  trying to steal: the covered dump formats (`od -c`, `hexdump`/`xxd`, `base64`) are
+  folded, but arbitrary byte transforms (rot13, xor, python one-liners, gzip) are out
+  of scope.
 - **Tool-output blocks show hashes.** pi draws tool blocks through
   renderers shared with HTML exports, so tool blocks are hashed (or bulleted)
   everywhere. User and assistant text still reveal.
@@ -90,7 +86,7 @@ placeholder, and the tool receives the real value.
 4. When a tool finishes, the `tool_result` handler scrubs its output (content +
    `structuredContent`, plus `details`/nested-call records at `message_end`).
    Unregistered assignment/URL values are auto-captured first, then known values
-   become `$$HASH$$`; only spans too short to capture become `$$HASH$$`.
+   become `$$HASH$$`; values under the 8-char floor stay raw.
 5. When a message ends, the `message_end` handler hashes user + assistant text for
    storage. System messages are never touched.
 6. `!`-commands run through a scrubbing wrapper of pi's own shell operations; the

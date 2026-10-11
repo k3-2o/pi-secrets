@@ -142,6 +142,10 @@ attempt 4 "auto-capture: UNregistered assignment value hashed everywhere (never 
 	"$AUTO_RAW" '\$\$AUTOKEY_[A-Z0-9]{12}:[ULCM]\$\$' \
 	"Use the bash tool to run exactly: cat demo.env . Then reply with ONLY the file content wrapped in backticks." \
 	"$ROOT/out-auto"
+attempt 4 "xxd dump: hex+ascii columns folded, same key hashed" \
+	"$AUTO_RAW" '\$\$AUTOKEY_[A-Z0-9]{12}:[ULCM]\$\$' \
+	"Use the bash tool to run exactly: xxd demo.env . Then reply with ONLY the command output wrapped in backticks." \
+	"$ROOT/out-xxd"
 
 echo
 echo "live smoke: $PASS passed, $FAIL failed"

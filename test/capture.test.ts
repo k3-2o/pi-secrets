@@ -54,12 +54,12 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.hasSecrets()).toBe(false);
 	});
 
-	test("short values under the floor are never captured (stay bullets-only if named)", () => {
+	test("short values under the floor are never captured and stay raw (same floor as bullets)", () => {
 		const o = obf();
 		const out = scrubString(o, "API_KEY=short");
 		expect(o.isKnown("short")).toBe(false);
 		expect(o.hasSecrets()).toBe(false);
-		expect(out).toBe("API_KEY=••••••"); // assignment net still bullets at rest
+		expect(out).toBe("API_KEY=short"); // below-floor: bullets net leaves it raw too
 	});
 
 	test("capture itself is idempotent; known values never re-register", () => {

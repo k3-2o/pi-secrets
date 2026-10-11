@@ -288,15 +288,6 @@ export function lookupFriendlyPlaceholderAlias(
 	return unprefixed !== undefined ? deobfuscateMap.get(unprefixed) : undefined;
 }
 
-const PENDING_PLACEHOLDER_SUFFIX_RE = /(?:\$\$(?:[A-Z0-9]+_)?[A-Z0-9]*(?::[ULCM]?)?|\$)$/;
-
-// Buffer trailing delimiters so a partial placeholder token is never emitted before deobfuscation.
-export function stripPendingSecretPlaceholderSuffix(text: string): string {
-	const pendingPlaceholderStart = text.match(PENDING_PLACEHOLDER_SUFFIX_RE);
-	if (pendingPlaceholderStart?.index === undefined) return text;
-	return text.slice(0, pendingPlaceholderStart.index);
-}
-
 export interface RegexScanSegment {
 	scanStart: number;
 	scanEnd: number;

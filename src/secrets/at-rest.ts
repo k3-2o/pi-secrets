@@ -1,5 +1,6 @@
 import { foldDumpViews } from "./dump-views";
 import type { JsonValue, SecretObfuscator } from "./obfuscator";
+import { MIN_OBFUSCATE_SECRET_LEN } from "./placeholder";
 import { mapJsonStrings } from "./placeholder-scan";
 
 /** At-rest redaction in order: known → `$$HASH$$` (fixed point), then secret-shaped assignment/URL spans → bullets; shapes skip `$$` spans; tool-authored output only. */
@@ -7,9 +8,21 @@ import { mapJsonStrings } from "./placeholder-scan";
 const BULLET = "••••••";
 
 const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(_|$)/i;
+
+/** Keyword must start at a boundary too: start of name, `_`, or a camelCase hump - rejects `monkey=`, `bypass=` (keyword ending a word). */
+function isSecretName(name: string): boolean {
+	const m = SECRET_NAME_RE.exec(name);
+	if (m === null) return false;
+	const i = m.index;
+	if (i === 0) return true;
+	const before = name[i - 1];
+	if (before === "_") return true;
+	return /[a-z]/.test(before) && /[A-Z]/.test(m[1][0]);
+}
+
 // Name + delimiter only: a rejected name must never swallow a real assignment value.
 const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(?:=|:)/g;
-const VALUE_RE = /^\s*(?:"([^"\s]{4,})"|'([^'\s]{4,})'|([^\s"']{4,}))/;
+const VALUE_RE = /^\s*(?:"([^"\s]{1,})"|'([^'\s]{1,})'|([^\s"']{1,}))/;
 const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
 
 /** Replace the matched secret-shaped spans in `text` with bullets. */
@@ -20,11 +33,12 @@ export function redactShapes(text: string): string {
 	ASSIGNMENT_NAME_RE.lastIndex = 0;
 	let match: RegExpExecArray | null;
 	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
-		if (!SECRET_NAME_RE.test(match[1])) continue;
+		if (!isSecretName(match[1])) continue;
 		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
 		if (valueMatch === null) continue;
 		const value = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
 		if (value.includes("$$")) continue; // already-hashed registered value - leave it
+		if (value.length < MIN_OBFUSCATE_SECRET_LEN) continue; // same floor as capture: short values stay raw
 		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(value);
 		spans.push([valueStart, valueStart + value.length]);
 	}
@@ -79,7 +93,7 @@ export function captureUnregistered(obfuscator: SecretObfuscator, text: string):
 	ASSIGNMENT_NAME_RE.lastIndex = 0;
 	let match: RegExpExecArray | null;
 	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
-		if (!SECRET_NAME_RE.test(match[1])) continue;
+		if (!isSecretName(match[1])) continue;
 		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
 		if (valueMatch === null) continue;
 		const value = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
@@ -107,7 +121,7 @@ export function scrubString(obfuscator: SecretObfuscator, text: string): string 
 type ScrubBlock = { type: "text"; text: string };
 
 /** Scrub `text` blocks of a content array; other blocks (images) pass through. */
-export function scrubTextBlocks(
+function scrubTextBlocks(
 	obfuscator: SecretObfuscator,
 	content: readonly Readonly<Record<string, unknown>>[],
 ): readonly Readonly<Record<string, unknown>>[] {
