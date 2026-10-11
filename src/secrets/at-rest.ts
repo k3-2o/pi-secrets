@@ -1,3 +1,4 @@
+import { foldDumpViews } from "./dump-views";
 import type { JsonValue, SecretObfuscator } from "./obfuscator";
 import { mapJsonStrings } from "./placeholder-scan";
 
@@ -93,11 +94,12 @@ export function captureUnregistered(obfuscator: SecretObfuscator, text: string):
 	return text;
 }
 
-/** Known values → `$$HASH$$`, then secret-shaped spans → bullets. */
 export function scrubString(obfuscator: SecretObfuscator, text: string): string {
 	if (text.length === 0) return text;
-	captureUnregistered(obfuscator, text); // registers unknowns before hashing (learn on first sight)
-	const hashed = obfuscator.obfuscate(text);
+	// Fold dump formats first, then learn unknowns, then hash + shape-redact.
+	const out = foldDumpViews(obfuscator, text);
+	captureUnregistered(obfuscator, out);
+	const hashed = obfuscator.obfuscate(out);
 	return redactShapes(hashed);
 }
 

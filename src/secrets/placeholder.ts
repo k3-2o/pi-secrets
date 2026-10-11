@@ -201,7 +201,7 @@ export function secretEntriesNeedPlaceholderKey(entries: SecretEntry[]): boolean
 
 // HMAC-SHA256 under the per-install key - unkeyed hashes of low-entropy secrets would be dictionaried.
 export function buildHashBase(key: string, value: string): string {
-	// PORTED: Bun.CryptoHasher -> node:crypto createHmac (pi ships Node SEA builds).
+	// node:crypto createHmac (Bun.CryptoHasher unavailable on Node SEA builds).
 	const digest = crypto.createHmac("sha256", key).update(value).digest();
 	let v = 0n;
 	for (let i = 0; i < 8; i++) v = (v << 8n) | BigInt(digest[i]);
@@ -220,7 +220,7 @@ export function buildKeyedReplacementRun(key: string, length: number): string {
 	const radix = REPLACEMENT_CHARS.length;
 	let out = "";
 	for (let block = 0; out.length < length; block++) {
-		// PORTED: Bun.CryptoHasher -> node:crypto createHmac (pi ships Node SEA builds).
+		// node:crypto createHmac (Bun.CryptoHasher unavailable on Node SEA builds).
 		const digest = crypto.createHmac("sha256", key).update(`replace-chunk\0${length}\0${block}`).digest();
 		for (let i = 0; i < digest.length && out.length < length; i++) {
 			out += REPLACEMENT_CHARS[digest[i] % radix];

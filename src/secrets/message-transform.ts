@@ -108,7 +108,7 @@ function obfuscateTextBlocks(
 	return changed ? result : content;
 }
 
-/** Restore placeholders in `text` blocks of a content array; image and other blocks pass through. (Unused until Phase 7 re-adds compaction `blocks`.) */
+/** Restore placeholders in `text` blocks of a content array; image and other blocks pass through. */
 export function deobfuscateTextBlocks(obfuscator: SecretObfuscator, content: ContentBlocks): ContentBlocks {
 	if (!obfuscator.hasSecrets()) return content;
 	let changed = false;

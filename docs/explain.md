@@ -44,6 +44,13 @@ placeholder, and the tool receives the real value.
 - **Deliberate exfiltration.** A tool that explicitly writes or sends data is not blocked.
   A model acting in the same turn as a tool output can use a value before it is hashed.
   This reduces accidental and injection-driven leakage, not deliberate exfiltration.
+
+  This includes deliberately fragmenting a value. `od -c`, `hexdump`/`xxd`, and
+  `base64` output is folded back before detection, so those default dump formats
+  are caught. But arbitrary transforms are out of scope: rot13, xor, python
+  one-liners, splitting a value across two reads. The number of transforms is
+  unbounded, and a model that runs one is deliberately exfiltrating, which
+  sandboxing (deny host access) owns, not redaction.
 - **Tool-output blocks show hashes.** pi draws tool blocks through
   renderers shared with HTML exports, so tool blocks are hashed (or bulleted)
   everywhere. User and assistant text still reveal.

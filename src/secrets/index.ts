@@ -9,7 +9,7 @@ import { sanitizeSecretFriendlyName, secretEntriesNeedPlaceholderKey } from "./p
 import { compileSecretRegex } from "./regex";
 import { regexHasUnresolvableShortMatchFallback } from "./replacement";
 
-/** PORTED: `@oh-my-pi/pi-utils` local replacements (see Architecture.md B1). */
+/** Local replacements for `@oh-my-pi/pi-utils` helpers used by pi. */
 function isEnoent(err: unknown): boolean {
 	return (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }

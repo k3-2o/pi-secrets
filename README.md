@@ -153,6 +153,8 @@ shape. A bare vendor token in prose, a key under a non-keyword name (`NXOP=…`)
 JSON field whose name carries no keyword is only hidden if you register it in
 `secrets.yml`. URL passwords are the one exception: their shape alone triggers capture.
 
+**Dump formats are read through** (`od -c`, hexdump/xxd, base64); the full boundary is in `docs/explain.md`.
+
 ### Custom patterns: `secrets.yml`
 
 Global: `~/.pi/agent/secrets.yml`. Project: `<cwd>/secrets.yml` (project entries
