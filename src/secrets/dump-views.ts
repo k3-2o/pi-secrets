@@ -1,8 +1,6 @@
 import { captureUnregistered } from "./at-rest";
 import type { SecretObfuscator } from "./obfuscator";
 
-// Dump-format views: fold spaced chars, hex pairs, and base64 back into text, then detect + redact.
-
 const OCTAL_ADDR_RE = /^[0-7]{7,8}(?: {3}|\s{2,})/;
 const HEXPAIR_RUN_RE = /(?:[0-9a-fA-F]{2}[ \t]+)+[0-9a-fA-F]{2}/g;
 const B64_RUN_RE = /[A-Za-z0-9+/]{16,}={0,2}/g;
@@ -61,7 +59,6 @@ function odCFoldRegions(text: string): Region[] {
 function hexFoldRegions(text: string): Region[] {
 	const out: Region[] = [];
 
-	// Bare hex runs anywhere.
 	HEXPAIR_RUN_RE.lastIndex = 0;
 	for (;;) {
 		const m = HEXPAIR_RUN_RE.exec(text);
@@ -70,7 +67,6 @@ function hexFoldRegions(text: string): Region[] {
 		if (bytes.length >= 4 && /[ -~]/.test(bytes)) out.push([m.index, m.index + m[0].length, bytes]);
 	}
 
-	// xxd blocks: consecutive address-prefixed rows, folded as one region.
 	const LINE_RE = /^[0-9a-fA-F]+:\s+((?:[0-9a-fA-F]{2,4}[ \t]+)+[0-9a-fA-F]{2,4})\s+(.+)$/;
 	const lines = text.split("\n");
 	for (let li = 0; li < lines.length; li++) {
@@ -90,7 +86,6 @@ function hexFoldRegions(text: string): Region[] {
 			li = lastIdx;
 			continue;
 		}
-		// Incremental offsets (indexOf would mis-resolve repeated lines).
 		let start = 0;
 		for (let k = 0; k < li; k++) start += lines[k].length + 1;
 		let end = start;
@@ -102,13 +97,8 @@ function hexFoldRegions(text: string): Region[] {
 	return out;
 }
 
-/**
- * Address-suppressed `od` output: lines of bare hex pairs with an ASCII column,
- * no `0000000:` prefix (turn-27 leak shape). `od -A n -t x1z` produces this.
- */
 function noAddressHexFoldRegions(text: string): Region[] {
 	const out: Region[] = [];
-	// Lines matching: ^<hex pairs>  <ascii column>$ (no address, no colon).
 	const NO_ADDR_LINE = /^((?:[0-9a-fA-F]{2}[ \t]+)+[0-9a-fA-F]{2})\s{2}([ -~]{1,})$/;
 	const lines = text.split("\n");
 	let offset = 0;
@@ -124,7 +114,6 @@ function noAddressHexFoldRegions(text: string): Region[] {
 			offset += line.length + 1;
 			continue;
 		}
-		// Fold consecutive such lines into one region.
 		let end = offset + line.length + 1;
 		let k = li + 1;
 		while (k < lines.length) {
@@ -141,15 +130,8 @@ function noAddressHexFoldRegions(text: string): Region[] {
 	return out;
 }
 
-/**
- * Char-per-line dumps (`[e] 65`, `[x] 0x78`, ``ord('e')=101``): the turn-25
- * loop shape. Fold consecutive such lines into the chars they denote.
- */
 function charLineFoldRegions(text: string): Region[] {
 	const out: Region[] = [];
-	// Session-proven shape: `  [S] 53` (char + hex code), `[e] 65` (octal of a
-	// printable is the same as decimal), `[x] 0x78`, `ord('x')=120`. Bare 2-hex
-	// code without `0x` is the common form. Prefer hex when the code has a-f.
 	const CHAR_LINE =
 		/^\s*(?:\[([^\]\s])\]|\(['"]([^'"])\)|ord\('[^']*'\)\s*=\s*)(?:0x([0-9A-Fa-f]{1,2}))?\s*([0-9A-Fa-f]{1,3})?\s*$/;
 	const lines = text.split("\n");
@@ -165,7 +147,6 @@ function charLineFoldRegions(text: string): Region[] {
 		const codeStr = m[3] ?? m[4];
 		let ch: string;
 		if (lit !== undefined && codeStr !== undefined) {
-			// Literal is ground truth: `[S] 53` means code 0x53 == 83 == 'S'.
 			ch = parseInt(codeStr, 16) === lit.charCodeAt(0) ? lit : String.fromCharCode(parseInt(codeStr, 16));
 		} else if (lit !== undefined) {
 			ch = lit;
@@ -175,7 +156,6 @@ function charLineFoldRegions(text: string): Region[] {
 			offset += line.length + 1;
 			continue;
 		}
-		// accumulate a run of char-lines
 		let folded = ch;
 		let k = li + 1;
 		let end = offset + line.length + 1;
@@ -216,14 +196,13 @@ function b64Regions(text: string): Region[] {
 	return out;
 }
 
-// Apply folds back-to-front so offsets stay valid.
 function redactFoldedRegions(obfuscator: SecretObfuscator, text: string, regions: Region[]): string {
 	if (regions.length === 0) return text;
 	const sorted = regions.slice().sort((a, b) => b[0] - a[0]);
 	let out = text;
 	for (const [start, end, folded] of sorted) {
 		if (start >= out.length || end > out.length) continue;
-		captureUnregistered(obfuscator, folded);
+		captureUnregistered(obfuscator, folded, { skipValueVeto: true });
 		const hashed = obfuscator.obfuscate(folded);
 		if (hashed !== folded) out = out.slice(0, start) + hashed + out.slice(end);
 	}

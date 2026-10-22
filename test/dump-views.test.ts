@@ -14,8 +14,6 @@ function obf(entries: { content: string; mode?: "obfuscate" | "replace" }[] = []
 describe("phase 10 - dump-format decode views", () => {
 	test("xxd ascii column of an unknown credential-named assignment folds (capture path)", () => {
 		const o = obf();
-		// Real `xxd file` output for `export SERPER_API_KEY="e347a175c0a6526c29654610a3a2add56e1aec4"\n`.
-		// Multi-line: name and value wrap across 16-byte rows; the ascii column holds the raw chars.
 		const xxd =
 			"00000000: 6578 706f 7274 2053 4552 5045 525f 4150  export SERPER_AP\n" +
 			'00000010: 495f 4b45 593d 2265 3334 3761 3137 3563  I_KEY="e347a175c\n' +
@@ -25,6 +23,17 @@ describe("phase 10 - dump-format decode views", () => {
 		const out = scrubString(o, xxd);
 		expect(out).not.toContain("e347a175cc0a6526c29654610a3a2add56e1aec4");
 		expect(out).toContain("$$");
+	});
+
+	test("folded values bypass the value veto; plain text keeps it", () => {
+		const o = obf();
+		const secret = "a3f9c4d8b2e6a1f7c9d4e8b2a6f1c3d9e7b4a8f2";
+		expect(scrubString(o, `SERPER_API_KEY=${secret}`)).toBe(`SERPER_API_KEY=${secret}`);
+		const line = `SERPER_API_KEY=${secret}`;
+		const hex = [...line].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join(" ");
+		const out = scrubString(o, hex);
+		expect(out).not.toContain(secret);
+		expect([...out].filter((c) => c === "$").length).toBeGreaterThanOrEqual(2);
 	});
 
 	test("od -c of a credential line is captured and hashed", () => {
@@ -48,7 +57,6 @@ describe("phase 10 - dump-format decode views", () => {
 
 	test("hexdump (xxd-style) of a known secret is caught", () => {
 		const o = obf([{ content: "my-hex-secret-abcdef123456" }]);
-		// my-hex-secret-abcdef123456 as hex pairs
 		const hex = Array.from("my-hex-secret-abcdef123456")
 			.map((c) => c.charCodeAt(0).toString(16))
 			.join(" ");
@@ -69,7 +77,7 @@ describe("phase 10 - dump-format decode views", () => {
 		const o = obf();
 		const b64 = Buffer.from("not-a-secret-just-random".repeat(2)).toString("base64");
 		const out = scrubString(o, b64);
-		expect(out).toContain(b64); // untouched
+		expect(out).toContain(b64);
 	});
 
 	test("hex MAC address does not false positive", () => {
@@ -81,7 +89,7 @@ describe("phase 10 - dump-format decode views", () => {
 
 	test("prose with spaced words is not mangled", () => {
 		const o = obf();
-		const prose = "o n e  t w o  t h r e e"; // od-like but not a dump (no addresses)
+		const prose = "o n e  t w o  t h r e e";
 		expect(scrubString(o, prose)).toBe(prose);
 	});
 

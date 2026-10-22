@@ -60,19 +60,11 @@ describe("at-rest - shape redaction (unknown-shaped spans → bullets)", () => {
 	});
 
 	test("camelCase and underscore-prefixed secret names still gate", () => {
-		// apiKey/userKey (camel hump), _pass (underscore) - over the floor so they redact
-		expect(redactShapes("apiKey=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
-			"apiKey=e347a175cc0a6526c29654610a3a2add56e1aec4",
-		);
-		expect(redactShapes("userKey=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
-			"userKey=e347a175cc0a6526c29654610a3a2add56e1aec4",
-		);
-		expect(redactShapes("_pass=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
-			"_pass=e347a175cc0a6526c29654610a3a2add56e1aec4",
-		);
-		expect(redactShapes("SERPER_API_KEY=e347a175cc0a6526c29654610a3a2add56e1aec4")).not.toBe(
-			"SERPER_API_KEY=e347a175cc0a6526c29654610a3a2add56e1aec4",
-		);
+		const value = "q7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG";
+		expect(redactShapes(`apiKey=${value}`)).not.toBe(`apiKey=${value}`);
+		expect(redactShapes(`userKey=${value}`)).not.toBe(`userKey=${value}`);
+		expect(redactShapes(`_pass=${value}`)).not.toBe(`_pass=${value}`);
+		expect(redactShapes(`SERPER_API_KEY=${value}`)).not.toBe(`SERPER_API_KEY=${value}`);
 	});
 
 	test("below-floor values stay raw even behind a gated name (key=lambda kwargs)", () => {
@@ -109,7 +101,6 @@ describe("at-rest - scrubToolResult composite", () => {
 		const serialized = JSON.stringify(out);
 		expect(serialized).not.toContain(SECRET);
 		expect(serialized).toContain("$$");
-		// structuredContent key survives (contract), hashed inside.
 		expect(JSON.stringify(out?.structuredContent)).toContain("$$");
 	});
 
@@ -125,7 +116,7 @@ describe("at-rest - scrubToolResult composite", () => {
 			content: [{ type: "text", text: 'unregistered leak: API_TOKEN="zz-unregistered-token-999"' }],
 		});
 		expect(JSON.stringify(out)).not.toContain("zz-unregistered-token-999");
-		expect(JSON.stringify(out)).toContain("$$"); // captured → reversible hash, not bullets
+		expect(JSON.stringify(out)).toContain("$$");
 		expect(JSON.stringify(out)).not.toContain("••••••");
 	});
 
@@ -133,7 +124,6 @@ describe("at-rest - scrubToolResult composite", () => {
 		const out = scrubToolResult(obfuscator, {
 			content: [{ type: "text", text: "API_TOKEN=short" }],
 		});
-		// below-floor: nothing changes, so the scrub is a no-op (undefined per contract)
 		expect(out).toBeUndefined();
 	});
 });

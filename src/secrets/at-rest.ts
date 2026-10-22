@@ -1,15 +1,12 @@
 import { foldDumpViews } from "./dump-views";
 import type { JsonValue, SecretObfuscator } from "./obfuscator";
-import { MIN_OBFUSCATE_SECRET_LEN } from "./placeholder";
 import { mapJsonStrings } from "./placeholder-scan";
-
-/** At-rest redaction in order: known → `$$HASH$$` (fixed point), then secret-shaped assignment/URL spans → bullets; shapes skip `$$` spans; tool-authored output only. */
+import { valueRedactionVerdict, valueVetoesRedaction } from "./value-gate";
 
 const BULLET = "••••••";
 
 const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(_|$)/i;
 
-/** Keyword must start at a boundary too: start of name, `_`, or a camelCase hump - rejects `monkey=`, `bypass=` (keyword ending a word). */
 function isSecretName(name: string): boolean {
 	const m = SECRET_NAME_RE.exec(name);
 	if (m === null) return false;
@@ -20,12 +17,10 @@ function isSecretName(name: string): boolean {
 	return /[a-z]/.test(before) && /[A-Z]/.test(m[1][0]);
 }
 
-// Name + delimiter only: a rejected name must never swallow a real assignment value.
 const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(?:=|:)/g;
 const VALUE_RE = /^\s*(?:"([^"\s]{1,})"|'([^'\s]{1,})'|([^\s"']{1,}))/;
 const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
 
-/** Replace the matched secret-shaped spans in `text` with bullets. */
 export function redactShapes(text: string): string {
 	if (text.length === 0) return text;
 	const spans: Array<[number, number]> = [];
@@ -37,8 +32,8 @@ export function redactShapes(text: string): string {
 		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
 		if (valueMatch === null) continue;
 		const value = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
-		if (value.includes("$$")) continue; // already-hashed registered value - leave it
-		if (value.length < MIN_OBFUSCATE_SECRET_LEN) continue; // same floor as capture: short values stay raw
+		if (value.includes("$$")) continue;
+		if (valueRedactionVerdict(match[1], value) === "keep") continue;
 		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(value);
 		spans.push([valueStart, valueStart + value.length]);
 	}
@@ -55,7 +50,6 @@ export function redactShapes(text: string): string {
 	return replaceSpans(text, spans);
 }
 
-/** Sort + merge overlapping spans, then rebuild the string with bullets. */
 function replaceSpans(text: string, spans: Array<[number, number]>): string {
 	const sorted = spans.sort((a, b) => a[0] - b[0]);
 	const merged: Array<[number, number]> = [];
@@ -77,19 +71,22 @@ function replaceSpans(text: string, spans: Array<[number, number]>): string {
 	return out + text.slice(cursor);
 }
 
-/** Auto-capture: register unregistered assignment/URL values as plain obfuscate secrets before hashing - same gates as `redactShapes`; input returned unchanged. */
-export function captureUnregistered(obfuscator: SecretObfuscator, text: string): string {
+export function captureUnregistered(
+	obfuscator: SecretObfuscator,
+	text: string,
+	options: { skipValueVeto?: boolean } = {},
+): string {
 	if (text.length === 0) return text;
 	const seen = new Set<string>();
 	const tryCapture = (value: string, friendlyName?: string): void => {
-		if (value.includes("$$")) return; // already-hashed span - leave it
+		if (value.includes("$$")) return;
+		if (!options.skipValueVeto && valueVetoesRedaction(value)) return;
 		if (obfuscator.isKnown(value)) return;
 		if (seen.has(value)) return;
 		seen.add(value);
-		obfuscator.addPlainSecret(value, friendlyName); // length floor enforced inside
+		obfuscator.addPlainSecret(value, friendlyName);
 	};
 
-	// Credential-*named* assignments: `API_KEY=…`, `"apiKey": "…"`, `key: '…'`.
 	ASSIGNMENT_NAME_RE.lastIndex = 0;
 	let match: RegExpExecArray | null;
 	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
@@ -100,7 +97,6 @@ export function captureUnregistered(obfuscator: SecretObfuscator, text: string):
 		tryCapture(value, match[1]);
 	}
 
-	// Connection-URL passwords: `scheme://user:password@host`.
 	CONNECTION_URL_RE.lastIndex = 0;
 	while ((match = CONNECTION_URL_RE.exec(text)) !== null) {
 		tryCapture(match[1]);
@@ -110,17 +106,14 @@ export function captureUnregistered(obfuscator: SecretObfuscator, text: string):
 
 export function scrubString(obfuscator: SecretObfuscator, text: string): string {
 	if (text.length === 0) return text;
-	// Fold dump formats first, then learn unknowns, then hash + shape-redact.
 	const out = foldDumpViews(obfuscator, text);
 	captureUnregistered(obfuscator, out);
 	const hashed = obfuscator.obfuscate(out);
 	return redactShapes(hashed);
 }
 
-/** A text-bearing block (the subset of content blocks we rewrite). */
 type ScrubBlock = { type: "text"; text: string };
 
-/** Scrub `text` blocks of a content array; other blocks (images) pass through. */
 function scrubTextBlocks(
 	obfuscator: SecretObfuscator,
 	content: readonly Readonly<Record<string, unknown>>[],
@@ -138,13 +131,11 @@ function scrubTextBlocks(
 	return changed ? result : content;
 }
 
-/** Scrub every string inside a JSON value (structuredContent, details, …). */
 export function scrubJsonValue(obfuscator: SecretObfuscator, value: JsonValue | undefined): JsonValue | undefined {
 	if (value === undefined) return undefined;
 	return mapJsonStrings(value, (s) => scrubString(obfuscator, s));
 }
 
-/** One tool-result unit: what `tool_result` and the persisted toolResult message carry. */
 export interface ToolResultScrubInput {
 	content: readonly Readonly<Record<string, unknown>>[];
 	structuredContent?: JsonValue;
@@ -159,7 +150,6 @@ export interface ToolResultScrubOutput {
 	nestedCalls?: { calls: Array<{ arguments?: unknown }>; complete: boolean };
 }
 
-/** Scrub a tool result for persistence; `undefined` when unchanged (tool_result drops structuredContent if content is replaced without it). */
 export function scrubToolResult(
 	obfuscator: SecretObfuscator,
 	input: ToolResultScrubInput,
