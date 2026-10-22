@@ -20,9 +20,7 @@ export type ValueShape =
 	| "other"
 	| "empty";
 
-const VENDOR_PREFIXES: string[] = [
-	...CREDENTIAL_PATTERNS.flatMap((pattern) => pattern.literalPrefixes ?? []),
-]
+const VENDOR_PREFIXES: string[] = [...CREDENTIAL_PATTERNS.flatMap((pattern) => pattern.literalPrefixes ?? [])]
 	.filter((prefix) => prefix !== "SK")
 	.map((prefix) => prefix.toLowerCase());
 
@@ -120,9 +118,6 @@ function isIsoDatetime(value: string): boolean {
 function isPath(value: string): boolean {
 	if (/^(?:\/|~\/|\.\/|\.\.\/)/.test(value)) return true;
 	return (
-		value.includes("/") &&
-		value
-			.split("/")
-			.every((segment) => segment.length > 0 && /^[A-Za-z0-9._-]+$/.test(segment))
+		value.includes("/") && value.split("/").every((segment) => segment.length > 0 && /^[A-Za-z0-9._-]+$/.test(segment))
 	);
 }

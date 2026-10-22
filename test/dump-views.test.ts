@@ -107,7 +107,7 @@ describe("session-proven dump shapes", () => {
 	test("char-per-line [x] NN loop (turn-25 shape) folds to a hash", () => {
 		const o = obf();
 		const body = `SERPER_API_KEY="${VAL}"`;
-		const dump = [...body].map((c) => "  [" + c + "] " + c.charCodeAt(0).toString(16).toUpperCase()).join("\n");
+		const dump = [...body].map((c) => `  [${c}] ${c.charCodeAt(0).toString(16).toUpperCase()}`).join("\n");
 		const out = scrubString(o, dump);
 		expect(out.includes(VAL)).toBe(false);
 		expect([...out].filter((c) => c === "$").length).toBeGreaterThanOrEqual(2);
@@ -119,7 +119,7 @@ describe("session-proven dump shapes", () => {
 		let od = "";
 		for (let i = 0; i < hex.length; i += 8) {
 			const row = hex.slice(i, i + 8);
-			od += row.join(" ") + "   " + row.map((h) => String.fromCharCode(parseInt(h, 16))).join("") + "\n";
+			od += `${row.join(" ")}   ${row.map((h) => String.fromCharCode(parseInt(h, 16))).join("")}\n`;
 		}
 		const out = scrubString(o, od);
 		expect(out.includes(VAL)).toBe(false);

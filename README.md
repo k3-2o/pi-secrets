@@ -21,8 +21,9 @@
 - **Tools still work on real bytes.** Edits and commands run with real values; the model
   plans against placeholders (`edit old="$$HASH$$"` matches the file).
 - **Learn-on-first-sight.** A `KEY=value` line or URL password that is not registered yet
-  is captured the first time it appears and hashed like any registered secret. No
-  `secrets.yml` entry needed.
+  is captured the first time it appears and hashed like any registered secret, unless the
+  value is deterministically a non-secret (dates, paths, UUIDs, hex, wordlists, digits),
+  which is left as-is. No `secrets.yml` entry needed.
 - **One-way bullets match capture.** Credential-named assignment values under the 8-char
   capture floor stay raw entirely; bullets and capture share one length gate.
 - **Hash morphing done right.** `$$NAME_HASH:HINT$$` placeholders are HMAC-keyed per
@@ -89,7 +90,8 @@ credential *shapes* are hash-routed: edits around known secrets stay lossless.
 
 **Unregistered values** are captured or raw, never silently reusable. When tool output
 contains a credential-*named* assignment (`API_KEY=…`) or a connection-URL password,
-pi-secrets **auto-captures** the value on first sight. It registers the value
+pi-secrets **auto-captures** the value on first sight unless its shape marks it a
+non-secret (dates, paths, hex, digit runs), which stays raw. It registers the value
 session-scoped and hashes it, so it becomes editable exactly like a registered value
 (two-way round-trip). A bare value in prose that matches no name gate and no
 built-in shape stays raw. That is the honest boundary. Values under the 8-char floor
@@ -143,7 +145,7 @@ environment variable.
 
 | Net | Hardcoded trigger | What it catches |
 |---|---|---|
-| Auto-capture (learn-on-first-sight) | Credential-*named* assignments (name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASS`, `AUTH`, `CREDENTIAL`, `PRIVATE`, or `OAUTH`) and `scheme://user:password@host` URLs, values of 8+ chars | Assignment/URL values that were never registered and hashed on first sight, session-scoped, reversible |
+| Auto-capture (learn-on-first-sight) | Credential-*named* assignments (name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASS`, `AUTH`, `CREDENTIAL`, `PRIVATE`, or `OAUTH`) and `scheme://user:password@host` URLs, values of 8+ chars | Assignment/URL values that were never registered and hashed on first sight, session-scoped, reversible; values shaped like non-secrets (dates, paths, wordlists, hex, digits) stay raw |
 | Built-in shapes | Vendor prefixes (`sk-`, `ghp_`, `glpat-`, `AKIA`, `eyJ`, …) | Bare prefixed tokens, anywhere, no assignment needed |
 | `secrets.yml` | Your entries | Everything the two automatic nets miss |
 

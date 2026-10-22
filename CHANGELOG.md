@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-10-22
+
+- Value gate: credential-named assignments with non-secret-shaped values (dates, times, versions, UUIDs, hex, paths, wordlists, digits, auth schemes) are left raw and never auto-captured.
+- `PASSWORD`/`PASSWD`/`PASS` fields ignore the 8-char floor for ambiguous short values, so `PASSWORD=hunter2` is hashed.
+- Dump views (`xxd`/`od`/base64) still capture hex-shaped values; only plain text keeps the veto.
+
 ## 0.2.1 — 2026-10-11
 
 - Fold dump-view leaks: space-folded (`od -c`), hex-pair (`xxd`/`hexdump`), base64-folded, char-per-line hex, and address-suppressed hexdumps are folded back to contiguous text before detection.

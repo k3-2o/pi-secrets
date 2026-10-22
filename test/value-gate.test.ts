@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { redactShapes, scrubString } from "../src/secrets/at-rest";
 import { SecretObfuscator } from "../src/secrets/obfuscator";
-import { type ValueShape, classifyValueShape, valueRedactionVerdict } from "../src/secrets/value-gate";
+import { classifyValueShape, type ValueShape, valueRedactionVerdict } from "../src/secrets/value-gate";
 
 describe("classifyValueShape", () => {
 	const cases: Array<[string, ValueShape]> = [
