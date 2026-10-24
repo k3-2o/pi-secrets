@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 — 2026-10-24
+
+- Security fix: bare hex values (24+ hex chars) under credential-named assignments are hashed and captured again, closing a leak where an unregistered key pasted as `SERPER_API_KEY=<hex>` stayed raw in tool output. The hex veto now applies only to hyphenated UUIDs.
+
 ## 0.3.0 — 2026-10-22
 
 - Value gate: credential-named assignments with non-secret-shaped values (dates, times, versions, UUIDs, hex, paths, wordlists, digits, auth schemes) are left raw and never auto-captured.

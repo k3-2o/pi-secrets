@@ -47,7 +47,6 @@ const VETO_SHAPES: ReadonlySet<ValueShape> = new Set([
 	"unix-ms",
 	"version",
 	"uuid",
-	"hex-digest",
 	"path",
 	"wordlist",
 	"lowercase-word",
@@ -69,7 +68,7 @@ export function classifyValueShape(value: string): ValueShape {
 	}
 	if (/^\d{13}$/.test(value)) return "unix-ms";
 	if (/^\d+(\.\d+){1,3}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(value)) return "version";
-	if (/^[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}$/.test(value)) return "uuid";
+	if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)) return "uuid";
 	if (/^[0-9a-fA-F]{24,}$/.test(value)) return "hex-digest";
 	if (isPath(value)) return "path";
 	if (/^[a-z]+(?:[-_. ][a-z]+){1,}$/.test(value)) return "wordlist";

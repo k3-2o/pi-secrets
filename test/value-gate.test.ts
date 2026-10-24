@@ -12,9 +12,8 @@ describe("classifyValueShape", () => {
 		["1776332221000", "unix-ms"],
 		["1.2.3", "version"],
 		["2026.5.0-rc1", "version"],
-		["550e8400e29b41d4a716446655440000", "uuid"],
 		["550e8400-e29b-41d4-a716-446655440000", "uuid"],
-		["deadbeefdeadbeefdeadbeefdeadbeef", "uuid"],
+		["deadbeefdeadbeefdeadbeefdeadbeef", "hex-digest"],
 		["abababababababababababababababababababab", "hex-digest"],
 		["/home/pi/projects/x", "path"],
 		["~/config/app.yml", "path"],
@@ -48,8 +47,8 @@ describe("valueRedactionVerdict", () => {
 		expect(valueRedactionVerdict("TOKEN", "2026-04-10T14:22:31Z")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "1776332221")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "1.2.3")).toBe("keep");
-		expect(valueRedactionVerdict("TOKEN", "550e8400e29b41d4a716446655440000")).toBe("keep");
-		expect(valueRedactionVerdict("TOKEN", "deadbeefdeadbeefdeadbeefdeadbeef")).toBe("keep");
+		expect(valueRedactionVerdict("TOKEN", "550e8400-e29b-41d4-a716-446655440000")).toBe("keep");
+		expect(valueRedactionVerdict("TOKEN", "deadbeefdeadbeefdeadbeefdeadbeef")).toBe("mask");
 		expect(valueRedactionVerdict("TOKEN", "/home/pi/projects/x")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "abracadabra-hokus-pocus")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN_COUNT", "12345678")).toBe("keep");
@@ -111,13 +110,16 @@ describe("integration with the at-rest pipeline", () => {
 		expect(o.isKnown("q7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG")).toBe(true);
 	});
 
-	test("hex values stay raw: 32-char (uuid path) and 40-char (hex branch)", () => {
+	test("bare hex values under credential names are hashed; hyphenated UUIDs stay raw", () => {
 		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
 		const short = "deadbeefdeadbeefdeadbeefdeadbeef";
 		const long = "abababababababababababababababababababab";
-		expect(scrubString(o, `SERPER_API_KEY=${short}`)).toBe(`SERPER_API_KEY=${short}`);
-		expect(scrubString(o, `SERPER_API_KEY=${long}`)).toBe(`SERPER_API_KEY=${long}`);
-		expect(o.isKnown(short)).toBe(false);
-		expect(o.isKnown(long)).toBe(false);
+		expect(scrubString(o, `SERPER_API_KEY=${short}`)).not.toBe(`SERPER_API_KEY=${short}`);
+		expect(scrubString(o, `SERPER_API_KEY=${long}`)).not.toBe(`SERPER_API_KEY=${long}`);
+		expect(o.isKnown(short)).toBe(true);
+		expect(o.isKnown(long)).toBe(true);
+		const uuid = "550e8400-e29b-41d4-a716-446655440000";
+		expect(scrubString(o, `TOKEN=${uuid}`)).toBe(`TOKEN=${uuid}`);
+		expect(o.isKnown(uuid)).toBe(false);
 	});
 });

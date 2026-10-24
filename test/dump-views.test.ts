@@ -25,11 +25,12 @@ describe("phase 10 - dump-format decode views", () => {
 		expect(out).toContain("$$");
 	});
 
-	test("folded values bypass the value veto; plain text keeps it", () => {
+	test("plain hex assignments hash and folded dumps still capture", () => {
 		const o = obf();
 		const secret = "a3f9c4d8b2e6a1f7c9d4e8b2a6f1c3d9e7b4a8f2";
-		expect(scrubString(o, `SERPER_API_KEY=${secret}`)).toBe(`SERPER_API_KEY=${secret}`);
-		const line = `SERPER_API_KEY=${secret}`;
+		expect(scrubString(o, `SERPER_API_KEY=${secret}`)).not.toBe(`SERPER_API_KEY=${secret}`);
+		expect(o.isKnown(secret)).toBe(true);
+		const line = `TOKEN=${secret}`;
 		const hex = [...line].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join(" ");
 		const out = scrubString(o, hex);
 		expect(out).not.toContain(secret);
