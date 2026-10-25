@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 — 2026-10-25
+
+- Auto-capture no longer registers source-code values as secrets.
+- Wrong captures are unlearned when re-encountered as code.
+- Add /secrets command: shows what the session learned.
+
 ## 0.3.1 — 2026-10-24
 
 - Security fix: bare hex values (24+ hex chars) under credential-named assignments are hashed and captured again, closing a leak where an unregistered key pasted as `SERPER_API_KEY=<hex>` stayed raw in tool output. The hex veto now applies only to hyphenated UUIDs.

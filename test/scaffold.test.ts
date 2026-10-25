@@ -9,16 +9,19 @@ describe("pi-secrets extension contract", () => {
 
 	test("factory registers the --secrets flag and a markdown transformer at load", () => {
 		const flags: Array<{ name: string; options: unknown }> = [];
+		const commands: string[] = [];
 		const transformers: Array<unknown> = [];
 		const stub = {
 			registerFlag: (name: string, options: unknown) => void flags.push({ name, options }),
 			registerMarkdownTransformer: (fn: unknown) => void transformers.push(fn),
+			registerCommand: (name: string) => void commands.push(name),
 			on: () => () => {},
 			getFlag: () => undefined,
 		} as unknown as ExtensionAPI;
 		expect(() => extensionFactory(stub)).not.toThrow();
 		expect(flags).toHaveLength(1);
 		expect(flags[0].name).toBe("secrets");
+		expect(commands).toContain("secrets");
 		expect(transformers).toHaveLength(1);
 	});
 });

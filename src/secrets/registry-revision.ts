@@ -44,6 +44,13 @@ export class TrackedMap<K, V> implements ReadonlyMap<K, V> {
 		return this;
 	}
 
+	delete(key: K): boolean {
+		if (!this.#map.delete(key)) return false;
+		this.#version++;
+		this.#revision.bump();
+		return true;
+	}
+
 	keys(): MapIterator<K> {
 		return this.#map.keys();
 	}
@@ -87,6 +94,12 @@ export class TrackedSet<T> {
 		this.#set.add(value);
 		this.#revision.bump();
 		return this;
+	}
+
+	delete(value: T): boolean {
+		if (!this.#set.delete(value)) return false;
+		this.#revision.bump();
+		return true;
 	}
 
 	[Symbol.iterator](): SetIterator<T> {

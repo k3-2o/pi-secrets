@@ -180,6 +180,8 @@ example covering every field and mode.
 | `secrets.enabled` | boolean | `false` | Master switch |
 | `--secrets` flag | boolean | unset | Force the feature on/off for a session |
 
+During a session, `/secrets` lists what was auto-captured: labels and count, never values.
+
 The per-install key lives at `~/.pi/agent/secret-placeholder.key` (mode `0600`,
 created lazily on the first placeholder mint). Delete it to invalidate old
 placeholders. See Rotation in `docs/explain.md`.

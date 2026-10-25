@@ -95,6 +95,26 @@ export default function (pi: ExtensionAPI): void {
 		description: "Force pi-secrets reversible credential obfuscation on for this session",
 	});
 
+	pi.registerCommand("secrets", {
+		description: "pi-secrets: list auto-captured credential labels for this session (names only, never values)",
+		handler: async (_args, ctx) => {
+			const { obfuscator } = state;
+			if (!obfuscator) {
+				ctx.ui.notify("pi-secrets: off for this session.", "info");
+				return;
+			}
+			const report = obfuscator.autoCaptureReport();
+			if (report.count === 0) {
+				ctx.ui.notify("pi-secrets: nothing auto-captured this session.", "info");
+				return;
+			}
+			ctx.ui.notify(
+				`pi-secrets: ${report.count} auto-captured value${report.count === 1 ? "" : "s"} (${report.labels.join(", ")})`,
+				"info",
+			);
+		},
+	});
+
 	// Build (or disable) the per-session obfuscator.
 	pi.on("session_start", async (_event, ctx) => {
 		const agentDir = getAgentDir(); // honors PI_CODING_AGENT_DIR

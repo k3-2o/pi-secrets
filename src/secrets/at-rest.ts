@@ -17,32 +17,116 @@ function isSecretName(name: string): boolean {
 	return /[a-z]/.test(before) && /[A-Z]/.test(m[1][0]);
 }
 
-const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(?:=|:)/g;
+// Group 2 captures the operator: `:` is YAML/config shape in plain text but a type/object member in source code.
+const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(=|:)/g;
 const VALUE_RE = /^\s*(?:"([^"\s]{1,})"|'([^'\s]{1,})'|([^\s"']{1,}))/;
 const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
 
-export function redactShapes(text: string): string {
-	if (text.length === 0) return text;
-	const spans: Array<[number, number]> = [];
+const TRAILING_PUNCT_RE = /[;,)\]}]+$/;
+// Values that carry bracket/call syntax are expressions, not credential tokens. Operators that live
+// passwords legitimately use (`& ! ? ~ % ^ * + # - =`) must NOT be listed: `PASSWORD=Tr0ub4dor&3` is a secret.
+const CODE_VALUE_RE = /[()[\]{}<>|`]/;
+// `a.b.c` as a whole value is a member reference, never a credential (dots inside longer mixed values stay allowed).
+const DOTTED_REFERENCE_RE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
+const JS_LITERAL_VALUES = new Set(["undefined", "null", "true", "false", "NaN", "Infinity"]);
 
+function refusableValueShape(value: string): boolean {
+	return CODE_VALUE_RE.test(value) || DOTTED_REFERENCE_RE.test(value) || JS_LITERAL_VALUES.has(value);
+}
+
+interface AssignmentCandidate {
+	name: string;
+	value: string;
+	valueStart: number;
+	valueEnd: number;
+	quoted: boolean;
+}
+
+const CODE_LINE_RE =
+	/=>|\b(?:const|let|var|function|class|interface|type|enum|import|export|return|async|public|private|readonly)\b|\?\.|[;{}]\s*$/;
+const CODE_MIN_LINES = 3;
+const CODE_MIN_RATIO = 0.15;
+
+// Credential-dump text (`.env`, transcripts, folded dumps) never stacks up code markers; source reads always do.
+function looksLikeCode(text: string): boolean {
+	let nonEmpty = 0;
+	let code = 0;
+	for (const line of text.split("\n")) {
+		if (line.length === 0) continue;
+		nonEmpty++;
+		if (CODE_LINE_RE.test(line)) code++;
+	}
+	return code >= CODE_MIN_LINES && code / nonEmpty >= CODE_MIN_RATIO;
+}
+
+function acceptedUnquotedValue(raw: string): string | undefined {
+	const value = raw.replace(TRAILING_PUNCT_RE, "");
+	if (value.length === 0 || refusableValueShape(value)) return undefined;
+	return value;
+}
+
+// Only runtime-learned (auto-captured) values are eligible; configured secrets.yml/env entries are never touched.
+function evictContradicted(obfuscator: SecretObfuscator, text: string): void {
 	ASSIGNMENT_NAME_RE.lastIndex = 0;
 	let match: RegExpExecArray | null;
 	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
 		if (!isSecretName(match[1])) continue;
 		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
 		if (valueMatch === null) continue;
-		const value = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
+		const raw = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
+		const trimmed = raw.replace(TRAILING_PUNCT_RE, "");
+		if (!refusableValueShape(trimmed)) continue;
+		if (obfuscator.isAutoCaptured(raw)) obfuscator.removeAutoCaptured(raw);
+		if (obfuscator.isAutoCaptured(trimmed)) obfuscator.removeAutoCaptured(trimmed);
+	}
+}
+
+function assignmentCandidates(text: string): AssignmentCandidate[] {
+	const out: AssignmentCandidate[] = [];
+	const codeShaped = looksLikeCode(text);
+	ASSIGNMENT_NAME_RE.lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
+		if (!isSecretName(match[1])) continue;
+		const operator = match[2];
+		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
+		if (valueMatch === null) continue;
+		const raw = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
+		const quoted = valueMatch[1] !== undefined || valueMatch[2] !== undefined;
+		// In code-shaped text an unquoted `name: value` is a type/object member, not a credential line.
+		if (codeShaped && operator === ":" && !quoted) continue;
+		// In code-shaped text a quoted value must not read as code vocabulary: short values (`"option:0"`,
+		// `"Map:"`) and letter-only identifiers (`"systemPromptColor"`) are labels, not credentials.
+		if (codeShaped && quoted && (raw.length < 12 || /^[A-Za-z]+$/.test(raw))) continue;
+		let value = raw;
+		if (!quoted) {
+			const accepted = acceptedUnquotedValue(raw);
+			if (accepted === undefined) continue;
+			value = accepted;
+		}
 		if (value.includes("$$")) continue;
-		if (valueRedactionVerdict(match[1], value) === "keep") continue;
-		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(value);
-		spans.push([valueStart, valueStart + value.length]);
+		// Trimming only ever removes trailing characters, so the start offset is unchanged.
+		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(raw);
+		out.push({ name: match[1], value, valueStart, valueEnd: valueStart + value.length, quoted });
+	}
+	return out;
+}
+
+export function redactShapes(text: string): string {
+	if (text.length === 0) return text;
+	const spans: Array<[number, number]> = [];
+
+	for (const c of assignmentCandidates(text)) {
+		if (valueRedactionVerdict(c.name, c.value) === "keep") continue;
+		spans.push([c.valueStart, c.valueEnd]);
 	}
 
 	CONNECTION_URL_RE.lastIndex = 0;
-	while ((match = CONNECTION_URL_RE.exec(text)) !== null) {
-		const password = match[1];
+	let urlMatch: RegExpExecArray | null;
+	while ((urlMatch = CONNECTION_URL_RE.exec(text)) !== null) {
+		const password = urlMatch[1];
 		if (password.includes("$$")) continue;
-		const start = match.index + match[0].lastIndexOf(password);
+		const start = urlMatch.index + urlMatch[0].lastIndexOf(password);
 		spans.push([start, start + password.length]);
 	}
 
@@ -77,6 +161,7 @@ export function captureUnregistered(
 	options: { skipValueVeto?: boolean } = {},
 ): string {
 	if (text.length === 0) return text;
+	evictContradicted(obfuscator, text);
 	const seen = new Set<string>();
 	const tryCapture = (value: string, friendlyName?: string): void => {
 		if (value.includes("$$")) return;
@@ -87,19 +172,14 @@ export function captureUnregistered(
 		obfuscator.addPlainSecret(value, friendlyName);
 	};
 
-	ASSIGNMENT_NAME_RE.lastIndex = 0;
-	let match: RegExpExecArray | null;
-	while ((match = ASSIGNMENT_NAME_RE.exec(text)) !== null) {
-		if (!isSecretName(match[1])) continue;
-		const valueMatch = VALUE_RE.exec(text.slice(ASSIGNMENT_NAME_RE.lastIndex));
-		if (valueMatch === null) continue;
-		const value = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
-		tryCapture(value, match[1]);
+	for (const c of assignmentCandidates(text)) {
+		tryCapture(c.value, c.name);
 	}
 
 	CONNECTION_URL_RE.lastIndex = 0;
-	while ((match = CONNECTION_URL_RE.exec(text)) !== null) {
-		tryCapture(match[1]);
+	let urlMatch: RegExpExecArray | null;
+	while ((urlMatch = CONNECTION_URL_RE.exec(text)) !== null) {
+		tryCapture(urlMatch[1]);
 	}
 	return text;
 }

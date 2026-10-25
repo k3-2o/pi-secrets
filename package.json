@@ -1,6 +1,6 @@
 {
   "name": "@k3_2o/pi-secrets",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "type": "module",
   "description": "A pi extension that reversibly obfuscates credentials before they reach the provider: keyed $$PLACEHOLDER$$ substitution, built-in credential patterns, and a user secrets.yml for custom redaction.",
   "keywords": [

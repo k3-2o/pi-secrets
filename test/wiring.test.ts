@@ -13,12 +13,14 @@ interface FakePi {
 	pi: ExtensionAPI;
 	handlers: Map<string, (event: unknown, ctx?: unknown) => unknown>;
 	transformers: Array<(markdown: string, context: unknown) => string>;
+	commands: Map<string, { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }>;
 	run: (event: string, eventData: unknown, ctx?: unknown) => Promise<unknown>;
 }
 
 function makeFakePi(flag: boolean | string | undefined, getSettings?: () => Record<string, unknown>): FakePi {
 	const handlers = new Map<string, (event: unknown, ctx?: unknown) => unknown>();
 	const transformers: Array<(markdown: string, context: unknown) => string> = [];
+	const commands = new Map<string, { description?: string; handler: (args: string, ctx: unknown) => Promise<void> }>();
 	const pi = {
 		registerFlag: () => {},
 		getFlag: () => flag,
@@ -29,12 +31,19 @@ function makeFakePi(flag: boolean | string | undefined, getSettings?: () => Reco
 		registerMarkdownTransformer: (fn: (markdown: string, context: unknown) => string) => {
 			transformers.push(fn);
 		},
+		registerCommand: (
+			name: string,
+			options: { description?: string; handler: (args: string, ctx: unknown) => Promise<void> },
+		) => {
+			commands.set(name, options);
+		},
 		getSettings,
 	} as unknown as ExtensionAPI;
 	return {
 		pi,
 		handlers,
 		transformers,
+		commands,
 		run: async (event: string, eventData: unknown, ctx?: unknown) => {
 			const handler = handlers.get(event);
 			if (!handler) throw new Error(`no handler for ${event}`);
@@ -298,5 +307,34 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		const plain = [{ role: "user", content: "no secrets in this message at all", timestamp: 0 }];
 		const result = await fake.run("context", { type: "context", messages: plain });
 		expect(result).toBeUndefined();
+	});
+});
+
+describe("phase 11 - /secrets diagnostics command", () => {
+	test("command reports auto-captured labels and count, never values; silent when nothing learned", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+		expect(fake.commands.has("secrets")).toBe(true);
+
+		const notices: string[] = [];
+		const ctx = { ui: { notify: (m: string) => notices.push(m) } };
+		await fake.commands.get("secrets")!.handler("", ctx);
+		expect(notices.length).toBe(1);
+		expect(notices[0]).not.toContain(SECRET); // configured secrets.yml entries never appear
+
+		await fake.run("tool_result", {
+			type: "tool_result",
+			callId: "c1",
+			toolName: "bash",
+			isError: false,
+			content: [{ type: "text", text: "DEPLOY_API_TOKEN=Zz9real-Unregistered-Secret42\n" }],
+			structuredContent: undefined,
+		});
+		notices.length = 0;
+		await fake.commands.get("secrets")!.handler("", ctx);
+		expect(notices[0]).toContain("DEPLOY_API_TOKEN");
+		expect(notices[0]).toContain("1");
+		expect(notices[0]).not.toContain("Zz9real-Unregistered-Secret42");
 	});
 });

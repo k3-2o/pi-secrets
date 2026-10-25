@@ -143,6 +143,12 @@ export class SecretObfuscator {
 	/** First obfuscate index minted for each secret value (`#findObfuscateIndex` without a scan). */
 	#obfuscateIndexBySecret = new TrackedMap<string, number>(this.#revision);
 
+	/** Runtime-learned plain values (auto-capture); eviction may remove these, configured entries never. */
+	#autoCapturedValues = new SecretValueSet(undefined, this.#revision);
+
+	/** Friendly label per auto-captured value; the report exposes labels, never values. */
+	readonly #autoCaptureLabels = new Map<string, string>();
+
 	/** Regex values seen in the current obfuscate input, used to keep friendly labels from exposing normalized matches that are discovered later in the same pass. */
 	#currentRegexSecretValues = new SecretValueSet();
 
@@ -376,12 +382,55 @@ export class SecretObfuscator {
 		if (value.length < MIN_OBFUSCATE_SECRET_LEN) return false;
 		if (this.#configuredSecretValues.has(value) || this.#mintedSecretValues.has(value)) return false;
 		this.#configuredSecretValues.add(value);
+		this.#autoCapturedValues.add(value);
+		this.#autoCaptureLabels.set(
+			value,
+			friendlyName !== undefined && friendlyName.length > 0 ? friendlyName.toUpperCase() : "AUTO",
+		);
 		const index = this.#nextIndex++;
 		const placeholder = this.#createPlaceholder(value, friendlyName);
 		this.#plainMappings.set(value, index);
 		this.#registerObfuscateMapping(index, value, placeholder);
 		this.#hasAny = true;
 		return true;
+	}
+
+	isAutoCaptured(value: string): boolean {
+		return this.#autoCapturedValues.has(value);
+	}
+
+	removeAutoCaptured(value: string): boolean {
+		if (!this.#autoCapturedValues.delete(value)) return false;
+		this.#autoCaptureLabels.delete(value);
+		const index = this.#plainMappings.get(value);
+		this.#plainMappings.delete(value);
+		if (index !== undefined) {
+			const mapping = this.#obfuscateMappings.get(index);
+			if (mapping !== undefined) {
+				this.#generatedPlaceholders.delete(mapping.placeholder);
+				// Drop the placeholder and its friendly/unprefixed aliases that resolve to this value.
+				for (const [placeholder, entry] of [...this.#deobfuscateMap]) {
+					if (entry.secret === value) this.#deobfuscateMap.delete(placeholder);
+				}
+			}
+			this.#obfuscateMappings.delete(index);
+		}
+		this.#mintedSecretValues.delete(value);
+		this.#obfuscateIndexBySecret.delete(value);
+		this.#configuredSecretValues.delete(value);
+		const base = this.#placeholderBaseByKey.get(value);
+		if (base !== undefined) {
+			this.#placeholderBaseOwners.delete(base);
+			this.#placeholderBaseByKey.delete(value);
+		}
+		this.#hasAny = this.#regexEntries.length > 0 || this.#replaceMappings.size > 0 || this.#plainMappings.size > 0;
+		return true;
+	}
+
+	/** Never lists the values themselves, only labels. */
+	autoCaptureReport(): { count: number; labels: string[] } {
+		const labels = new Set(this.#autoCaptureLabels.values());
+		return { count: this.#autoCaptureLabels.size, labels: [...labels].sort() };
 	}
 
 	/** Whether outbound text is currently obfuscated. */

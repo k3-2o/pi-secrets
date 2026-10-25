@@ -112,3 +112,17 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.isKnown(RAW)).toBe(true);
 	});
 });
+
+describe("phase 11 - capture diagnostics", () => {
+	test("S5: report lists friendly labels and count, never values; eviction shrinks it", () => {
+		const o = obf();
+		scrubString(o, "DEPLOY_API_TOKEN=Zz9real-Captured-Secret42\nnoteRowKey = undefined;\n");
+		// The second is refused by the shape gate, so only the first is captured at all.
+		const report = o.autoCaptureReport();
+		expect(report.count).toBe(1);
+		expect(report.labels).toContain("DEPLOY_API_TOKEN");
+		expect(JSON.stringify(report)).not.toContain("Zz9real-Captured-Secret42");
+		o.removeAutoCaptured("Zz9real-Captured-Secret42");
+		expect(o.autoCaptureReport().count).toBe(0);
+	});
+});

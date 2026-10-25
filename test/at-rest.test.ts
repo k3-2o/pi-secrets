@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildSecretObfuscator } from "../src/secrets";
 import { redactShapes, scrubJsonValue, scrubString, scrubToolResult } from "../src/secrets/at-rest";
-import type { SecretObfuscator } from "../src/secrets/obfuscator";
+import { SecretObfuscator } from "../src/secrets/obfuscator";
 import { readSecretsSettings } from "../src/settings";
 
 const SECRET = "at-rest-secret-1234567890123";
@@ -159,5 +159,91 @@ describe("config - legacy mode key is ignored (P8.6)", () => {
 		);
 		const settings = readSecretsSettings({} as never, agentDir);
 		expect(settings).toEqual({ enabled: false });
+	});
+});
+
+describe("phase 11 - code-noise guard", () => {
+	test("S1: unquoted values with code punctuation are neither captured nor masked", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		const lines = ["    state.noteRowKey = rowKey(row);", "    const token = createProbeToken();"];
+		for (const line of lines) {
+			expect(scrubString(o, line)).toBe(line);
+			expect(o.isKnown("rowKey(row)")).toBe(false);
+			expect(o.isKnown("createProbeToken()")).toBe(false);
+		}
+	});
+});
+
+describe("phase 11 - code-noise guard (cont.)", () => {
+	test("S2: unquoted colon values in code-shaped text are not captured", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		const text = [
+			'import { createProbeToken } from "./token.ts";',
+			"",
+			"export class SilentProbe {",
+			"  readonly token: ProbeToken;",
+			"  private attempt = { started: true, token: createProbeToken(), completion };",
+			"};",
+			"",
+		].join("\n");
+		expect(scrubString(o, text)).toBe(text);
+		expect(o.isKnown("ProbeToken")).toBe(false);
+	});
+
+	test("S2: unquoted colon values in config-shaped text are still captured", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		const out = scrubString(o, "api_token: Zz9plain-YAML-style-value42");
+		expect(o.isKnown("Zz9plain-YAML-style-value42")).toBe(true);
+		expect(out).not.toContain("Zz9plain-YAML-style-value42");
+	});
+});
+
+describe("phase 11 - code-noise guard (quoted values)", () => {
+	test("S3: quoted identifier-shaped and short values in code are left raw, real keys still captured", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		const text = [
+			"export const THEME = {",
+			'  "system-prompt": { key: "systemPromptColor", color: "mdHeading" },',
+			'  "skills": { key: "skillsColor", color: "customMessageLabel" },',
+			"};",
+			"",
+			'const noteRowKey = "option:0";',
+			"",
+			'export const API_TOKEN = "Ax9Q2mN4vB8cL1zK7pR3"; // hardcoded, must be caught',
+			"",
+		].join("\n");
+		const out = scrubString(o, text);
+		expect(out).not.toContain("Ax9Q2mN4vB8cL1zK7pR3");
+		expect(o.isKnown("Ax9Q2mN4vB8cL1zK7pR3")).toBe(true);
+		expect(o.isKnown("systemPromptColor")).toBe(false);
+		expect(o.isKnown("skillsColor")).toBe(false);
+		expect(o.isKnown("option:0")).toBe(false);
+		expect(out).toContain("systemPromptColor");
+		expect(out).toContain(`"option:0"`);
+	});
+});
+
+describe("phase 11 - registry eviction", () => {
+	test("S4: a previously captured code value is evicted on contrary evidence and heals the line", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		// Simulate the pre-fix poisoning: the raw statement fragment was learned as a "secret".
+		expect(o.addPlainSecret("undefined;", "noteRowKey")).toBe(true);
+		expect(o.addPlainSecret("adjustment.oauth", "oauth")).toBe(true);
+		const line = "    state.noteRowKey = undefined;\n";
+		expect(scrubString(o, line)).toBe(line);
+		expect(o.isKnown("undefined;")).toBe(false);
+		expect(scrubString(o, "    oauth: adjustment.oauth,\n")).toBe("    oauth: adjustment.oauth,\n");
+		expect(o.isKnown("adjustment.oauth")).toBe(false);
+	});
+
+	test("S4: eviction only touches auto-captured values - configured secrets survive", () => {
+		const o = new SecretObfuscator(
+			[{ type: "plain", content: "undefined;", mode: "obfuscate" }],
+			"unit-test-key-0123456789abcdef",
+		);
+		// noteRowKey IS a gated name and `undefined;` is the shape-refused raw slice: the eviction scan
+		// runs against this exact line - only the auto-capture check may save a configured entry.
+		const out = scrubString(o, "    state.noteRowKey = undefined;\n");
+		expect(out).toContain("$$");
 	});
 });
