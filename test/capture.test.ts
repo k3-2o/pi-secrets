@@ -47,6 +47,63 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.isKnown(URL_PASSWORD)).toBe(true);
 	});
 
+	test("quoted values with whitespace are captured and hashed (not raw)", () => {
+		const o = obf();
+		const input = `DATABASE_PASSWORD="P@ssw0rd!2024x extra2"`;
+		const out = scrubString(o, input);
+		expect(out.startsWith('DATABASE_PASSWORD="$$')).toBe(true);
+		expect(out.endsWith('$$"')).toBe(true);
+		expect(out).not.toContain("P@ssw0rd");
+		expect(o.isKnown("P@ssw0rd!2024x extra2")).toBe(true); // inner text registered, quotes not
+	});
+
+	test("single-quoted and YAML-colon whitespace values capture too", () => {
+		const o = obf();
+		const cases = [
+			`DB_PASSWORD='P@ssw0rd!2024x extra2'`,
+			`token: "P@ssw0rd!2024x extra2"`,
+			`API_MASTER_KEY="x1 x2 x3 x4 x5 x6"`,
+		];
+		for (const input of cases) {
+			const out = scrubString(o, input);
+			expect(out).toContain("$$");
+			expect(out).not.toContain("P@ssw0rd");
+			expect(out).not.toContain("x1 x2");
+		}
+	});
+
+	test("quoted values: trailing punctuation inside quotes is kept, empty values stay raw", () => {
+		const o = obf();
+		const kept = scrubString(o, `PASS="abc!,xyz"`); // 8 chars: over the capture floor
+		expect(o.isKnown("abc!,xyz")).toBe(true); // not stripped by the unquoted punctuation rule
+		expect(kept).toContain("$$");
+		expect(scrubString(o, `KEY=""`)).toBe(`KEY=""`); // empty quoted value is nothing
+		// Placeholder literal assembled at runtime (the session deobfuscator rewrites
+		// `$$...$$`-shaped spans in tool arguments; parts avoid that).
+		const ph = "$$" + "SECRET_G55UCK1FFULY:M" + "$$";
+		const unclosed = `SECRET="${ph}"abc`;
+		// Unclosed quote + hashed content inside: placeholder passes through untouched,
+		// nothing new is learned ($$-skip), output is a byte no-op.
+		expect(scrubString(o, unclosed)).toBe(unclosed);
+	});
+
+	test("code guard still skips quoted labels and short quoted values in code-shaped text", () => {
+		const o = obf();
+		const code = [
+			`const rows = [];`,
+			`const config = {`,
+			`  apiKey: "systemPromptColor",`,
+			`  secret: "Map:",`,
+			`  password: "option:0",`,
+			`  username: "hello",`,
+			`};`,
+			`return config.password;`,
+		].join("\n");
+		const out = scrubString(o, code);
+		expect(out).toBe(code); // labels and short quoted members are not credentials
+		expect(o.autoCaptureReport().count).toBe(0);
+	});
+
 	test("non-secret names are skipped - no capture, no redaction", () => {
 		const o = obf();
 		const input = "count=12345678 and leak=abracadabra-1234567890";

@@ -19,7 +19,10 @@ function isSecretName(name: string): boolean {
 
 // Group 2 captures the operator: `:` is YAML/config shape in plain text but a type/object member in source code.
 const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(=|:)/g;
-const VALUE_RE = /^\s*(?:"([^"\s]{1,})"|'([^'\s]{1,})'|([^\s"']{1,}))/;
+// Quoted alternatives span whitespace: `KEY="a b"` is a single value. The unquoted
+// alternative stays whitespace-delimited; a value may still not START with a quote
+// unless the line was quoted (an unclosed quote falls through and stays raw).
+const VALUE_RE = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s"']{1,}))/;
 const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
 
 const TRAILING_PUNCT_RE = /[;,)\]}]+$/;
