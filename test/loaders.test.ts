@@ -11,7 +11,6 @@ import {
 	loadSecrets,
 } from "../src/secrets/loaders";
 
-/** Same name rule as the loader; used to make env-dependent tests hermetic. */
 const SECRET_NAME_RE = /(?:KEY|SECRET|TOKEN|PASSWORD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(?:_|$)/i;
 
 function scrubSecretEnv(): Array<[string, string | undefined]> {
@@ -69,7 +68,7 @@ describe("loadSecrets - secrets.yml merge", () => {
 		const entries = await loadSecrets(cwd, agentDir);
 		expect(entries).toHaveLength(2);
 		const overridden = entries.find((e) => e.content === "override-me-123");
-		expect(overridden?.mode).toBe("replace"); // project won
+		expect(overridden?.mode).toBe("replace");
 		expect(overridden?.replacement).toBe("[GONE]");
 		expect(entries.some((e) => e.content === "shared-secret-abc")).toBe(true);
 	});
@@ -92,9 +91,9 @@ describe("loadSecrets - secrets.yml merge", () => {
 		fs.writeFileSync(
 			path.join(agentDir, "secrets.yml"),
 			[
-				"- type: nope\n  content: x", // bad type
-				'- type: plain\n  content: ""', // empty content
-				"- type: regex\n  content: '[unclosed'", // invalid regex
+				"- type: nope\n  content: x",
+				'- type: plain\n  content: ""',
+				"- type: regex\n  content: '[unclosed'",
 				'- type: plain\n  content: "valid-secret-456"\n  friendlyName: OKAY',
 			].join("\n"),
 		);
@@ -102,16 +101,16 @@ describe("loadSecrets - secrets.yml merge", () => {
 		expect(entries).toHaveLength(1);
 		expect(entries[0].content).toBe("valid-secret-456");
 		expect(entries[0].friendlyName).toBe("OKAY");
-		expect(entries[0].mode).toBe("obfuscate"); // defaulted
+		expect(entries[0].mode).toBe("obfuscate");
 	});
 });
 
 describe("collectEnvSecrets", () => {
 	test("name pattern + 8-char floor", () => {
 		try {
-			process.env.PSTEST_API_KEY = "abcdefghijklmnop"; // matches, long enough
-			process.env.PSTEST_TOKEN_VAL = "shrt"; // matches but too short
-			process.env.PSTEST_BLAND_PATH = "x".repeat(200); // long but name does not match
+			process.env.PSTEST_API_KEY = "abcdefghijklmnop";
+			process.env.PSTEST_TOKEN_VAL = "shrt";
+			process.env.PSTEST_BLAND_PATH = "x".repeat(200);
 			const entries = collectEnvSecrets();
 			expect(entries.some((e) => e.content === "abcdefghijklmnop")).toBe(true);
 			expect(entries.some((e) => e.content === "shrt")).toBe(false);
@@ -129,7 +128,7 @@ describe("collectEnvSecrets", () => {
 			process.env.PSTEST_WEIRD_URL = "redis://u:p%40ss%20word789@host:6379";
 			const entries = collectEnvSecrets();
 			expect(entries.some((e) => e.content === "supersecretpass123")).toBe(true);
-			expect(entries.some((e) => e.content === "p@ss word789")).toBe(true); // percent-decoded
+			expect(entries.some((e) => e.content === "p@ss word789")).toBe(true);
 		} finally {
 			delete process.env.PSTEST_DATABASE_URL;
 			delete process.env.PSTEST_WEIRD_URL;
@@ -157,12 +156,10 @@ describe("placeholder key lifecycle", () => {
 		const saved = scrubSecretEnv();
 		try {
 			const keyPath = path.join(agentDir, "secret-placeholder.key");
-			// No configured secrets and no env matches: no key file at build time.
-			// keyDir pinned to the temp agentDir so the real ~/.pi/agent is never touched.
+
 			const o = await buildSecretObfuscator(cwd, agentDir, agentDir);
 			expect(fs.existsSync(keyPath)).toBe(false);
 
-			// A built-in pattern match mints lazily through the sync provider.
 			const hidden = o?.obfuscate(`lazy ghp_${"c".repeat(40)} mint`);
 			expect(hidden).toContain("$$");
 			expect(fs.existsSync(keyPath)).toBe(true);
@@ -171,7 +168,6 @@ describe("placeholder key lifecycle", () => {
 			const key = await getSecretPlaceholderKey(agentDir);
 			expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
-			// Same file key ⇒ cross-instance determinism.
 			const o2 = await buildSecretObfuscator(cwd, agentDir, agentDir);
 			const hidden2 = o2?.obfuscate(`lazy ghp_${"c".repeat(40)} mint`);
 			expect(hidden2).toBe(hidden);

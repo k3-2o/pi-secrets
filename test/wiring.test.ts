@@ -66,7 +66,7 @@ beforeEach(() => {
 		path.join(cwd, "secrets.yml"),
 		`- type: plain\n  content: "${SECRET}"\n  mode: obfuscate\n  friendlyName: WIRING\n`,
 	);
-	process.env.PI_CODING_AGENT_DIR = agentDir; // getAgentDir() resolves here
+	process.env.PI_CODING_AGENT_DIR = agentDir;
 });
 
 afterEach(() => {
@@ -76,12 +76,11 @@ afterEach(() => {
 
 describe("pi-secrets wiring - single mode (Phase 8)", () => {
 	test("full pipeline: session → context hides → tool_call reveals → user/assistant message_end stores hashes", async () => {
-		const fake = makeFakePi(true); // --secrets flag forces on
+		const fake = makeFakePi(true);
 		extensionFactory(fake.pi);
 
 		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
 
-		// context: the model must never see the real secret.
 		const context = (await fake.run("context", {
 			type: "context",
 			messages: [{ role: "user", content: PLAIN_INPUT, timestamp: 0 }],
@@ -90,8 +89,6 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		const placeholder = PLACEHOLDER_RE.exec(context.messages[0].content)?.[0];
 		expect(placeholder).toBeDefined();
 
-		// tool_call: edit input arrives with the placeholder (what the model saw),
-		// the handler must swap real bytes back in place.
 		const editEvent = {
 			type: "tool_call",
 			toolName: "edit",
@@ -102,8 +99,6 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		expect((editEvent.input as { old: string }).old).toBe(SECRET);
 		expect((editEvent.input as { new: string }).new).toBe("replacement");
 
-		// message_end (user): real text is hashed at rest - the file never sees
-		// the raw value.
 		const userEnd = (await fake.run("message_end", {
 			type: "message_end",
 			message: { role: "user", content: PLAIN_INPUT, timestamp: 0 },
@@ -112,9 +107,6 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		expect(userEnd.message.content).not.toContain(SECRET);
 		expect(userEnd.message.content).toContain(placeholder);
 
-		// message_end (assistant): the model's own words already carry
-		// placeholders - a fixed-point no-op (identity return, nothing stored
-		// extra). A real value the model reassembled is hashed at rest.
 		const safeEnd = await fake.run("message_end", {
 			type: "message_end",
 			message: {
@@ -151,8 +143,7 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 				`the token is ${SECRET}`,
 			);
 		}
-		// Tool blocks are not revealed anywhere (D7) - the transformer must pass
-		// any other message type through untouched.
+
 		expect(
 			transform(`the token is ${placeholder}`, {
 				messageType: "toolResult" as never,
@@ -180,7 +171,7 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 
 		expect(result.content[0].text).not.toContain(SECRET);
 		expect(result.content[0].text).toContain("$$");
-		// structuredContent survives (contract: dropping it would delete it).
+
 		expect(result.structuredContent).toBeDefined();
 		expect(JSON.stringify(result.structuredContent)).not.toContain(SECRET);
 		expect(JSON.stringify(result.structuredContent)).toContain("$$");
@@ -235,8 +226,6 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		})) as { operations: BashOperations };
 		expect(enabled.operations).toBeDefined();
 
-		// The wrapper delegates to pi's local shell ops; output must be
-		// scrubbed end-to-end (no raw value ever reaches the record).
 		const chunks: string[] = [];
 		const exit = await enabled.operations.exec(`printf %s '${SECRET}'`, cwd, {
 			onData: (data) => chunks.push(data.toString("utf8")),
@@ -246,7 +235,6 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		expect(output).not.toContain(SECRET);
 		expect(output).toContain("$$");
 
-		// Disabled session: no handler result - local execution continues.
 		const off = makeFakePi(false);
 		extensionFactory(off.pi);
 		await off.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
@@ -278,8 +266,7 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 				signal: AbortSignal.timeout(50),
 			})
 			.catch((err: unknown) => ({ rejected: String(err) }));
-		// Abort rejects the exec; the wrapper must flush the no-newline-held tail
-		// into onData before that, so the session record is not missing the last bytes.
+
 		expect(outcome).toHaveProperty("rejected");
 		expect(chunks.join("")).toContain("heldfrag-no-newline");
 	});
@@ -346,7 +333,7 @@ describe("phase 11 - /secrets diagnostics command", () => {
 		const ctx = { ui: { notify: (m: string) => notices.push(m) } };
 		await fake.commands.get("secrets")!.handler("", ctx);
 		expect(notices.length).toBe(1);
-		expect(notices[0]).not.toContain(SECRET); // configured secrets.yml entries never appear
+		expect(notices[0]).not.toContain(SECRET);
 
 		await fake.run("tool_result", {
 			type: "tool_result",

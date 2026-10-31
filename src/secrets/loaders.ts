@@ -9,7 +9,6 @@ import { sanitizeSecretFriendlyName, secretEntriesNeedPlaceholderKey } from "./p
 import { compileSecretRegex } from "./regex";
 import { regexHasUnresolvableShortMatchFallback } from "./replacement";
 
-/** Local replacements for `@oh-my-pi/pi-utils` helpers used by pi. */
 function isEnoent(err: unknown): boolean {
 	return (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }
@@ -24,7 +23,6 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Default placeholder-key file: `<agentDir>/secret-placeholder.key` under pi's agent dir. */
 function defaultKeyPath(): string {
 	return path.join(getAgentDir(), "secret-placeholder.key");
 }
@@ -32,7 +30,6 @@ function defaultKeyPath(): string {
 const PLACEHOLDER_KEY_RE = /^[A-Za-z0-9_-]{43}$/;
 const cachedPlaceholderKeys = new Map<string, string>();
 
-/** Per-install key for placeholder digests; persisted under the agent dir, never sent to a provider, stable across sessions. */
 export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
@@ -52,7 +49,7 @@ export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> 
 		return generated;
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-		// Wait for non-empty content after a create race - an empty key is dictionaryable and won't match other processes' tokens.
+
 		const winner = await readPlaceholderKeyFile(keyPath, true);
 		if (winner === undefined) {
 			throw new Error(`secret placeholder key at ${keyPath} exists but is empty or unreadable`);
@@ -62,7 +59,6 @@ export async function getSecretPlaceholderKey(keyDir?: string): Promise<string> 
 	}
 }
 
-/** Load an existing placeholder key; corrupt is reported separately from missing. */
 export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<{ key?: string; corrupt?: Error }> {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
@@ -76,10 +72,8 @@ export async function getExistingSecretPlaceholderKey(keyDir?: string): Promise<
 	}
 }
 
-// Process-stable fallback when the key file can't be persisted; loses cross-session stability only.
 let ephemeralSyncPlaceholderKey: string | undefined;
 
-/** Sync lazy-key path for `obfuscate()`; never throws - unwritable degrades to a process-ephemeral key. */
 export function getSecretPlaceholderKeySync(keyDir?: string): string {
 	const keyPath = keyDir ? path.join(keyDir, "secret-placeholder.key") : defaultKeyPath();
 	const cached = cachedPlaceholderKeys.get(keyPath);
@@ -90,9 +84,7 @@ export function getSecretPlaceholderKeySync(keyDir?: string): string {
 			cachedPlaceholderKeys.set(keyPath, existing);
 			return existing;
 		}
-	} catch {
-		// Missing or unreadable - attempt creation below.
-	}
+	} catch {}
 	const generated = crypto.randomBytes(32).toString("base64url");
 	try {
 		fs.mkdirSync(path.dirname(keyPath), { recursive: true });
@@ -101,16 +93,13 @@ export function getSecretPlaceholderKeySync(keyDir?: string): string {
 		return generated;
 	} catch (err) {
 		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-			// Another process won the create race; accept its key if valid.
 			try {
 				const winner = fs.readFileSync(keyPath, "utf8").trim();
 				if (PLACEHOLDER_KEY_RE.test(winner)) {
 					cachedPlaceholderKeys.set(keyPath, winner);
 					return winner;
 				}
-			} catch {
-				// Fall through to the ephemeral key.
-			}
+			} catch {}
 		}
 		logger.warn("Could not persist secret placeholder key, using a process-ephemeral key", {
 			path: keyPath,
@@ -121,7 +110,6 @@ export function getSecretPlaceholderKeySync(keyDir?: string): string {
 	}
 }
 
-/** Read and validate the key file, optionally retrying briefly until a valid key lands. */
 async function readPlaceholderKeyFile(keyPath: string, retry: boolean): Promise<string | undefined> {
 	const attempts = retry ? 50 : 1;
 	let invalidValue: string | undefined;
@@ -149,7 +137,6 @@ export { type SecretEntry, SecretObfuscator } from "./obfuscator";
 export * from "./patterns";
 export { secretEntriesNeedPlaceholderKey, secretEntryNeedsPlaceholderKey } from "./placeholder";
 
-/** Load secrets.yml (project + global); project entries override globals with matching content. */
 export async function loadSecrets(cwd: string, agentDir: string): Promise<SecretEntry[]> {
 	const projectPath = path.join(cwd, "secrets.yml");
 	const globalPath = path.join(agentDir, "secrets.yml");
@@ -160,22 +147,17 @@ export async function loadSecrets(cwd: string, agentDir: string): Promise<Secret
 	if (globalEntries.length === 0) return projectEntries;
 	if (projectEntries.length === 0) return globalEntries;
 
-	// Merge: project overrides global by content match
 	const projectContents = new Set(projectEntries.map((e) => e.content));
 	const merged = [...globalEntries.filter((e) => !projectContents.has(e.content)), ...projectEntries];
 	return merged;
 }
 
-/** Minimum env var value length to consider as a secret. */
 const MIN_ENV_VALUE_LENGTH = 8;
 
-/** Env var name patterns that indicate secret values. */
 const SECRET_ENV_PATTERNS = /(?:KEY|SECRET|TOKEN|PASSWORD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(?:_|$)/i;
 
-/** Extracts the password group from a `scheme://user:password@host` value. */
 const CONNECTION_URL_PASSWORD_RE = /^[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#\s]+)@/i;
 
-/** Collect environment variable values that look like secrets. */
 export function collectEnvSecrets(): SecretEntry[] {
 	const entries: SecretEntry[] = [];
 	const seen = new Set<string>();
@@ -186,8 +168,7 @@ export function collectEnvSecrets(): SecretEntry[] {
 		seen.add(value);
 		entries.push({ type: "plain", content: value, mode: "obfuscate" });
 	}
-	// Second pass: extract passwords embedded in connection-URL values
-	// (e.g. scheme://user:password@host) regardless of the variable name.
+
 	for (const [, value] of Object.entries(process.env)) {
 		const match = CONNECTION_URL_PASSWORD_RE.exec(value ?? "");
 		if (!match) continue;
@@ -202,14 +183,11 @@ export function collectEnvSecrets(): SecretEntry[] {
 				seen.add(decoded);
 				entries.push({ type: "plain", content: decoded, mode: "obfuscate" });
 			}
-		} catch {
-			// Malformed percent-encoding - the raw password is already registered.
-		}
+		} catch {}
 	}
 	return entries;
 }
 
-/** Built-ins cover `patterns.ts` shapes with reversible placeholders so exact-match edits keep working (unregistered shapes would otherwise be one-way-redacted and uneditable). */
 export function builtinCredentialSecretEntries(): SecretEntry[] {
 	return CREDENTIAL_PATTERNS.map((pattern) => ({
 		type: "regex",
@@ -221,7 +199,6 @@ export function builtinCredentialSecretEntries(): SecretEntry[] {
 	}));
 }
 
-/** Build the session obfuscator (secrets.yml + env + built-ins). Configured entries force key creation; built-ins resolve the key lazily; with no active secret but a persisted key, returns a redaction-only obfuscator. */
 export async function buildSecretObfuscator(
 	cwd: string,
 	agentDir: string,
@@ -229,11 +206,10 @@ export async function buildSecretObfuscator(
 ): Promise<SecretObfuscator | undefined> {
 	const fileEntries = await loadSecrets(cwd, agentDir);
 	const envEntries = collectEnvSecrets();
-	// Built-in credential-pattern entries come last so user-configured entries
-	// (plain literals, custom regexes) take precedence in the scan order.
+
 	const allEntries = [...envEntries, ...fileEntries, ...builtinCredentialSecretEntries()];
 	const needsPlaceholderKey = secretEntriesNeedPlaceholderKey([...envEntries, ...fileEntries]);
-	// A persisted-but-corrupt key fails closed; a missing key falls to the lazy create path.
+
 	const existing = await getExistingSecretPlaceholderKey(keyDir);
 	if (existing.corrupt !== undefined) {
 		throw new Error(`secret placeholder key exists but is corrupt: ${existing.corrupt.message}`);
@@ -273,12 +249,11 @@ async function loadSecretsFile(filePath: string): Promise<SecretEntry[]> {
 		return entries;
 	} catch (err) {
 		if (isEnoent(err)) return [];
-		// Non-ENOENT (bad YAML, unreadable) fails the session closed - never silent partial protection.
+
 		throw new Error(`Failed to load ${filePath}: ${String(err)}`, { cause: err });
 	}
 }
 
-// Return friendlyName unsanitized: `#createPlaceholder` re-sanitizes and needs the RAW string for its regex-collision check (pre-sanitizing defeats it).
 function loadFriendlyName(entry: RawSecretEntry, filePath: string, index: number): string | undefined {
 	if (entry.friendlyName === undefined) return undefined;
 	if (typeof entry.friendlyName !== "string") {

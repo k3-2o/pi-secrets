@@ -5,10 +5,8 @@ import { builtinCredentialSecretEntries } from "../src/secrets/loaders";
 import { obfuscateMessages } from "../src/secrets/message-transform";
 import { type SecretEntry, SecretObfuscator } from "../src/secrets/obfuscator";
 
-/** Fixed test key: identical value across instances ⇒ deterministic cross-instance behavior. */
 const KEY = "unit-test-key-0123456789abcdef";
 
-/** Unregistered, shapeless value (would trip no built-in shape, no secrets.yml). */
 const RAW = "hyi-XuavR6H7ntIAVPcucu7973HpCC2Ik4z_x2Iq2ZPpZzM";
 const URL_PASSWORD = "u8r9PgQwXzA4vB2cD6fH1jK3lM5nO7pQ";
 
@@ -23,14 +21,14 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		const out = scrubString(o, input);
 		expect(out).not.toContain(RAW);
 		expect(out).toContain("$$");
-		expect(o.isKnown(RAW)).toBe(true); // captured + registered by first contact
+		expect(o.isKnown(RAW)).toBe(true);
 	});
 
 	test("captured value reveals (two-way, not bullets)", () => {
 		const o = obf();
 		const out = scrubString(o, `API_KEY=${RAW}`);
 		expect(out).not.toContain("••");
-		expect(o.deobfuscate(out)).toContain(RAW); // the screen-reveal path
+		expect(o.deobfuscate(out)).toContain(RAW);
 	});
 
 	test("tool-arg round-trip restores the exact bytes", () => {
@@ -49,7 +47,7 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 
 	test("URL passwords containing @ capture whole (no truncation at the first @)", () => {
 		const o = obf();
-		const pw = "passw" + "0rd!2024x"; // assembled to dodge the harness's own obfuscator
+		const pw = "passw" + "0rd!2024x";
 		const input = `postgres://app:${pw}@host.example:5432/db`;
 		const out = scrubString(o, input);
 		expect(out).not.toContain(pw);
@@ -63,7 +61,7 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(out.startsWith('DATABASE_PASSWORD="$$')).toBe(true);
 		expect(out.endsWith('$$"')).toBe(true);
 		expect(out).not.toContain("P@ssw0rd");
-		expect(o.isKnown("P@ssw0rd!2024x extra2")).toBe(true); // inner text registered, quotes not
+		expect(o.isKnown("P@ssw0rd!2024x extra2")).toBe(true);
 	});
 
 	test("single-quoted and YAML-colon whitespace values capture too", () => {
@@ -83,16 +81,14 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 
 	test("quoted values: trailing punctuation inside quotes is kept, empty values stay raw", () => {
 		const o = obf();
-		const kept = scrubString(o, `PASS="abc!,xyz"`); // 8 chars: over the capture floor
-		expect(o.isKnown("abc!,xyz")).toBe(true); // not stripped by the unquoted punctuation rule
+		const kept = scrubString(o, `PASS="abc!,xyz"`);
+		expect(o.isKnown("abc!,xyz")).toBe(true);
 		expect(kept).toContain("$$");
-		expect(scrubString(o, `KEY=""`)).toBe(`KEY=""`); // empty quoted value is nothing
-		// Placeholder literal assembled at runtime (the session deobfuscator rewrites
-		// `$$...$$`-shaped spans in tool arguments; parts avoid that).
+		expect(scrubString(o, `KEY=""`)).toBe(`KEY=""`);
+
 		const ph = "$$" + "SECRET_G55UCK1FFULY:M" + "$$";
 		const unclosed = `SECRET="${ph}"abc`;
-		// Unclosed quote + hashed content inside: placeholder passes through untouched,
-		// nothing new is learned ($$-skip), output is a byte no-op.
+
 		expect(scrubString(o, unclosed)).toBe(unclosed);
 	});
 
@@ -109,7 +105,7 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 			`return config.password;`,
 		].join("\n");
 		const out = scrubString(o, code);
-		expect(out).toBe(code); // labels and short quoted members are not credentials
+		expect(out).toBe(code);
 		expect(o.autoCaptureReport().count).toBe(0);
 	});
 
@@ -125,14 +121,14 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		const out = scrubString(o, "API_KEY=short");
 		expect(o.isKnown("short")).toBe(false);
 		expect(o.hasSecrets()).toBe(false);
-		expect(out).toBe("API_KEY=short"); // below-floor: bullets net leaves it raw too
+		expect(out).toBe("API_KEY=short");
 	});
 
 	test("capture itself is idempotent; known values never re-register", () => {
 		const o = obf([{ type: "plain", content: RAW, mode: "obfuscate" }]);
 		expect(o.isKnown(RAW)).toBe(true);
 		expect(o.addPlainSecret(RAW)).toBe(false);
-		expect(captureUnregistered(o, `API_KEY=${RAW}`)).toBe(`API_KEY=${RAW}`); // no throw, no re-add
+		expect(captureUnregistered(o, `API_KEY=${RAW}`)).toBe(`API_KEY=${RAW}`);
 	});
 
 	test("built-ins keep precedence; capture fills the unregistered remainder", () => {
@@ -159,13 +155,13 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 
 	test("capture registers the VALUE, not the line: every later form is hashed too", () => {
 		const o = obf();
-		// first contact: keyword-named assignment captures the value
+
 		expect(scrubString(o, `export API_KEY=${RAW}`)).toContain("$$");
-		// same value, but now in forms the name gate would NOT catch:
+
 		for (const form of [RAW, `X=${RAW}`, `{"ref": "${RAW}"}`, `bear ${RAW} end`]) {
 			expect(scrubString(o, form)).not.toContain(RAW);
 		}
-		// and it still round-trips (two-way), untouched by where it was first seen
+
 		expect(o.deobfuscate(scrubString(o, `X=${RAW}`))).toBe(`X=${RAW}`);
 	});
 	test("context path: user text is hashed at first look", () => {
@@ -183,7 +179,7 @@ describe("phase 11 - capture diagnostics", () => {
 	test("S5: report lists friendly labels and count, never values; eviction shrinks it", () => {
 		const o = obf();
 		scrubString(o, "DEPLOY_API_TOKEN=Zz9real-Captured-Secret42\nnoteRowKey = undefined;\n");
-		// The second is refused by the shape gate, so only the first is captured at all.
+
 		const report = o.autoCaptureReport();
 		expect(report.count).toBe(1);
 		expect(report.labels).toContain("DEPLOY_API_TOKEN");

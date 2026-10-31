@@ -8,9 +8,6 @@ import {
 	SecretValueSet,
 } from "./placeholder";
 
-// Helpers
-
-// Generated content is tagged "I"; preserved placeholders keep their own origin so fresh vs prior-call tokens are never relabeled.
 export function transformOutsidePlaceholdersTracked(
 	text: string,
 	origin: string,
@@ -124,13 +121,13 @@ export function mapReplaceRegexMatch(
 	const end = endSegment.generatedPlaceholder
 		? endSegment.textEnd
 		: endSegment.textStart + (scanEnd - endSegment.scanStart);
-	// A boundary inside a placeholder expansion cuts the secret - snap the span to the whole token instead.
+
 	const partialPlaceholderCut =
 		(startSegment.generatedPlaceholder && scanStart > startSegment.scanStart) ||
 		(endSegment.generatedPlaceholder && scanEnd < endSegment.scanEnd);
 	let recursive = false;
 	let preserveGeneratedPlaceholders = false;
-	// When a match straddles a placeholder, resume past it; a leading independent prefix still matches on its own.
+
 	let cutResumeIndex = scanStart;
 	let firstPlaceholderScanStart = -1;
 	for (const segment of segments) {
@@ -160,7 +157,6 @@ function findScanSegment(segments: ReadonlyArray<RegexScanSegment>, scanIndex: n
 	throw new Error("regex match did not map to source text");
 }
 
-// Chaining the resume point through adjacent placeholders makes first and later calls land on the identical scan position.
 export function extendPastAdjacentPlaceholders(segments: ReadonlyArray<RegexScanSegment>, index: number): number {
 	let cursor = index;
 	for (;;) {
@@ -170,7 +166,6 @@ export function extendPastAdjacentPlaceholders(segments: ReadonlyArray<RegexScan
 	}
 }
 
-// Fixed replacement over a match: emit the marker once; promote later chunks that are a marker prefix so the pass is a fixed point.
 export function redactWithFixedReplacementOutsidePlaceholders(
 	text: string,
 	origin: string,
@@ -219,7 +214,6 @@ export function deobfuscateGeneratedPlaceholderRanges(
 	return { text: result, recursive };
 }
 
-// Concatenate only placeholder-expanded bytes - proves a straddling match does not depend on surrounding spillover.
 export function placeholderInnerText(
 	text: string,
 	start: number,
@@ -239,7 +233,6 @@ export function placeholderInnerText(
 	return result;
 }
 
-// Concatenate only outside bytes - proves the match is genuine new content, not placeholder-bridged.
 export function textOutsidePlaceholderRanges(
 	text: string,
 	start: number,
@@ -259,8 +252,6 @@ export function textOutsidePlaceholderRanges(
 	return result;
 }
 
-// Test outside chunks in BOTH literal-token and expanded context (boundaries and lookarounds resolve differently each way).
-// A match counts only when it lies entirely inside one outside chunk.
 export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	text: string,
 	scanText: string,
@@ -270,7 +261,6 @@ export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	ranges: ReadonlyArray<{ start: number; end: number }>,
 	regex: RegExp,
 ): boolean {
-	// Scan-space offsets are fixed within a segment - outside chunks map 1:1.
 	const toScanSpace = (chunkStart: number, chunkEnd: number): [number, number] | undefined => {
 		for (const segment of segments) {
 			if (segment.generatedPlaceholder || segment.textStart > chunkStart || segment.textEnd < chunkEnd) continue;
@@ -295,7 +285,6 @@ export function outsidePlaceholderRangesAnyIndependentlyMatch(
 	return cursor < end && chunkIndependentlyMatches(cursor, end);
 }
 
-// Run against the full text so lookbehind/lookahead see real surroundings.
 function chunkMatchesInSourceContext(text: string, chunkStart: number, chunkEnd: number, regex: RegExp): boolean {
 	regex.lastIndex = chunkStart;
 	for (;;) {
@@ -345,7 +334,6 @@ export function replaceRange(text: string, start: number, end: number, replaceme
 	return text.slice(0, start) + replacement + text.slice(end);
 }
 
-/** Deep-walk an object, transforming all string values. */
 export function deepWalkStrings<T>(obj: T, transform: (s: string) => string): T {
 	if (typeof obj === "string") {
 		return transform(obj) as unknown as T;
@@ -401,7 +389,6 @@ export function collectJsonRegexSecretValues(obfuscator: SecretObfuscator, value
 	return values;
 }
 
-/** Map string values in schema-designated JSON data (tool args, discovery annotations, schema examples). */
 export function mapJsonStrings(value: JsonValue, fn: (s: string) => string): JsonValue {
 	if (typeof value === "string") return fn(value);
 	if (Array.isArray(value)) {

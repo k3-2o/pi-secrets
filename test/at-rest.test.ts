@@ -231,7 +231,7 @@ describe("phase 11 - code-noise guard (quoted values)", () => {
 describe("phase 11 - registry eviction", () => {
 	test("S4: a previously captured code value is evicted on contrary evidence and heals the line", () => {
 		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
-		// Simulate the pre-fix poisoning: the raw statement fragment was learned as a "secret".
+
 		expect(o.addPlainSecret("undefined;", "noteRowKey")).toBe(true);
 		expect(o.addPlainSecret("adjustment.oauth", "oauth")).toBe(true);
 		const line = "    state.noteRowKey = undefined;\n";
@@ -246,8 +246,7 @@ describe("phase 11 - registry eviction", () => {
 			[{ type: "plain", content: "undefined;", mode: "obfuscate" }],
 			"unit-test-key-0123456789abcdef",
 		);
-		// noteRowKey IS a gated name and `undefined;` is the shape-refused raw slice: the eviction scan
-		// runs against this exact line - only the auto-capture check may save a configured entry.
+
 		const out = scrubString(o, "    state.noteRowKey = undefined;\n");
 		expect(out).toContain("$$");
 	});

@@ -6,11 +6,10 @@ import { SecretValueSet } from "./placeholder";
 import { collectJsonRegexSecretValues, mapJsonStrings } from "./placeholder-scan";
 
 type AssistantContent = Extract<AgentMessage, { role: "assistant" }>["content"];
-/** Tool-result content is always a block array; user content may be a string. */
+
 type ContentBlocks = Extract<AgentMessage, { role: "toolResult" }>["content"];
 type UserFacingMessage = Extract<AgentMessage, { role: "user" | "toolResult" }>;
 
-/** Restore placeholders in assistant text and tool-call arguments (thinking passes through byte-identical). */
 export function deobfuscateAssistantContent(obfuscator: SecretObfuscator, content: AssistantContent): AssistantContent {
 	if (!obfuscator.hasSecrets()) return content;
 	const deob = (text: string): string => obfuscator.deobfuscate(text);
@@ -34,7 +33,6 @@ export function deobfuscateAssistantContent(obfuscator: SecretObfuscator, conten
 	return changed ? result : content;
 }
 
-/** Restore placeholders in model-authored argument values. Argument keys name tool parameters and must remain unchanged. */
 export function deobfuscateToolArguments(
 	obfuscator: SecretObfuscator,
 	args: Record<string, unknown>,
@@ -43,7 +41,6 @@ export function deobfuscateToolArguments(
 	return mapJsonStrings(args as JsonValue, (s) => obfuscator.deobfuscate(s)) as Record<string, unknown>;
 }
 
-/** Obfuscate `text` blocks of a content array; image and other blocks pass through. */
 function obfuscateTextBlocks(
 	obfuscator: SecretObfuscator,
 	content: ContentBlocks,
@@ -60,7 +57,6 @@ function obfuscateTextBlocks(
 	return changed ? result : content;
 }
 
-/** Re-obfuscate assistant content after restoration, dropping friendly prefixes made unsafe by this batch. */
 function obfuscateAssistantContentForReplay(
 	obfuscator: SecretObfuscator,
 	content: AssistantContent,
@@ -96,7 +92,6 @@ function obfuscateAssistantContentForReplay(
 	return changed ? result : content;
 }
 
-/** One shared collision set per batch - a value obfuscated elsewhere must not re-obfuscate its own placeholder. */
 function collectMessageRegexSecretValues(obfuscator: SecretObfuscator, messages: AgentMessage[]): SecretValueSet {
 	const values = new SecretValueSet();
 	const addText = (text: string | undefined): void => {
@@ -131,9 +126,7 @@ function collectMessageRegexSecretValues(obfuscator: SecretObfuscator, messages:
 	return values;
 }
 
-/** Obfuscate user/toolResult; re-obfuscate assistant replay (restoration expands placeholders); inline images never walked. */
 export function obfuscateMessages(obfuscator: SecretObfuscator, messages: AgentMessage[]): AgentMessage[] {
-	// Capture assignment/URL values first - capture seeds the registry even when empty.
 	for (const message of messages) {
 		if ("content" in message) captureContentText(obfuscator, message.content);
 	}
@@ -141,7 +134,6 @@ export function obfuscateMessages(obfuscator: SecretObfuscator, messages: AgentM
 	return obfuscator.batch(() => obfuscateMessageBatch(obfuscator, messages));
 }
 
-/** Capture unregistered assignment/URL-password values in message text (content blocks). */
 function captureContentText(obfuscator: SecretObfuscator, content: unknown): void {
 	if (typeof content === "string") {
 		captureUnregistered(obfuscator, content);
@@ -187,12 +179,10 @@ function obfuscateMessageBatch(obfuscator: SecretObfuscator, messages: AgentMess
 	return changed ? result : messages;
 }
 
-/** Outbound provider context: just the conversation messages (the static system prompt stays untouched). */
 export interface ProviderContext {
 	messages: AgentMessage[];
 }
 
-/** Redact outbound provider context; returns the same context object when nothing changed. */
 export function obfuscateProviderContext(
 	obfuscator: SecretObfuscator | undefined,
 	context: ProviderContext,

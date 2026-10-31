@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# pi-secrets live smoke: proves provider-boundary hiding + at-rest hashing in a
-# REAL pi run (default provider/model). Uses temp dirs only; never touches the
-# real ~/.pi/agent. Three prompts, then event-stream inspection (env secret, secrets.yml regex,
-# Phase 9 auto-capture of an UNregistered credential-named assignment).
-#
-# Exit 0 when every assertion holds; prints PASS/FAIL per check.
 set -u
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,19 +12,13 @@ AUTO_RAW="zc-auto-capture-demo-token-9876543210"
 
 if [ -n "${KEEP_LIVE:-}" ]; then trap '' EXIT; else trap 'rm -rf "$ROOT"' EXIT; fi
 
-# ── harness ──────────────────────────────────────────────────────────────────
 mkdir -p "$AGENT" "$CWD" "$SESSIONS"
-# Mirror the real agent dir so model selection/auth resolve exactly like a
-# normal session, while every secret OUR test writes stays in the temp dir.
 if [ -f "$HOME/.pi/agent/settings.json" ]; then cp "$HOME/.pi/agent/settings.json" "$AGENT/settings.json"; fi
 if [ -f "$HOME/.pi/agent/auth.json" ]; then ln -s "$HOME/.pi/agent/auth.json" "$AGENT/auth.json"; fi
 for f in models.json models-store.json; do
 	if [ -f "$HOME/.pi/agent/$f" ]; then cp "$HOME/.pi/agent/$f" "$AGENT/$f"; fi
 done
 if [ -d "$HOME/.pi/agent/extensions" ]; then
-	# Symlink every installed extension EXCEPT pi-secrets itself: the smoke
-	# loads the repo copy via -e, and registering the same --secrets flag twice
-	# fails the load.
 	mkdir -p "$AGENT/extensions"
 	for d in "$HOME/.pi/agent/extensions"/*; do
 		[ "$(basename "$d")" = "pi-secrets" ] && continue
@@ -51,7 +39,6 @@ cat > "$CWD/secrets.yml" <<YAML
   mode: obfuscate
   friendlyName: PSX
 YAML
-# Phase 9: an UNREGISTERED credential-named assignment - auto-capture must hash it.
 cat > "$CWD/demo.env" <<ENV
 AUTO_KEY=${AUTO_RAW}
 ENV
@@ -67,10 +54,6 @@ run_prompt() {
 		-e "$REPO/index.ts" --thinking off ) > "$out" 2>&1
 }
 
-# ── assertions (node parses the jsonl event stream + the persisted session file) ─
-# Phase 8 truth: RAW VALUES APPEAR NOWHERE - not in the event stream (pi's own
-# tool_execution_end now carries the scrubbed result) and not in the on-disk
-# session.jsonl (user text, tool results, and assistant replies are all hashed).
 CHECK_JS='
 const fs = require("fs");
 const [stream, session, raw, wantFriendly, label] = process.argv.slice(1);
@@ -107,11 +90,6 @@ console.log((ok ? "PASS  " : "FAIL  ") + label + (ok ? "" : `  [assistantPlaceho
 process.exit(ok ? 0 : 1);
 '
 
-# ── run: prompt with up to N tries (model compliance is probabilistic; the
-#    system behavior under test is deterministic) ─────────────────────────────
-# NOTE: the assistant-echo assertions depend on model compliance (it must quote
-# what it saw). The system under test is deterministic; retries absorb variance.
-# This script is a live proof, not the deterministic gate (`just check` is).
 attempt() {
 	local tries="$1" label="$2" raw="$3" friendly="$4" prompt="$5" outbase="$6" i
 	i=0

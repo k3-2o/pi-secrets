@@ -105,8 +105,6 @@ describe("phase 10 - dump-format decode views", () => {
 	});
 });
 describe("phase 10 - od -c control tokens fold to real control chars", () => {
-	// Build an od -c shaped dump: 7-digit octal address + 3 spaces, tokens 3-space
-	// separated, control characters rendered as their two-char backslash tokens.
 	function odC(data: string): string {
 		const tok = [...data].map((c) =>
 			c === "\n" ? "\\n" : c === "\t" ? "\\t" : c === "\r" ? "\\r" : c === " " ? "sp" : c,
@@ -120,13 +118,12 @@ describe("phase 10 - od -c control tokens fold to real control chars", () => {
 	}
 
 	test("a newline-bearing secret folds to its real bytes and hashes when dumped", () => {
-		const secret = "ab\ncd ef"; // 8 chars, over the floor
+		const secret = "ab\ncd ef";
 		expect(secret.length).toBe(8);
 		const o = obf([{ content: secret }]);
 		const dump = odC(secret);
 		const out = scrubString(o, dump);
-		// Letter-injection would fold to "abncd ef", which never matches, and the
-		// dump would pass raw. Real control folding reconstructs the exact value.
+
 		expect(out).not.toContain(secret);
 		expect(out).toContain("$$");
 	});
@@ -143,15 +140,13 @@ describe("phase 10 - od -c control tokens fold to real control chars", () => {
 	test("control tokens in a secret-free dump leave the output byte-identical", () => {
 		const o = obf();
 		const dump = odC("a\nb\nc\n");
-		const before = scrubString(o, "plain prose"); // warm nothing
+		const before = scrubString(o, "plain prose");
 		void before;
 		expect(scrubString(o, dump)).toBe(dump);
 	});
 });
 
 describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => {
-	// Build an xxd -g1 shaped dump: 8-hex address + ": ", 16 two-hex groups joined by
-	// single spaces, 1 space before the ASCII column on full rows, 2 on tail rows.
 	function xxd(body: string): string {
 		const hex = [...body].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"));
 		const rows: string[] = [];
@@ -172,8 +167,7 @@ describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => 
 		const out = scrubString(o, full);
 		expect(out).not.toContain(secret);
 		expect(out).toContain("$$");
-		// The ASCII column must not be re-decoded as hex (old bug doubled bytes
-		// into the fold, e.g. "suffix4V") and TAIL must not glue onto the hash.
+
 		expect(out).not.toContain("4V");
 		expect(out).toContain("TAIL LINE");
 	});
@@ -185,7 +179,7 @@ describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => 
 		const full = dump + dump;
 		const out = scrubString(o, full);
 		expect(out).not.toContain(secret);
-		expect(out.match(/\$\$/g)?.length ?? 0).toBeGreaterThanOrEqual(2); // both dumps redacted
+		expect(out.match(/\$\$/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
 	});
 });
 

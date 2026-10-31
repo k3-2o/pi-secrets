@@ -1,4 +1,3 @@
-/** Registry revision: tracked collections bind to it, reused results key on it - a write can never leave a stale result. */
 export class RegistryRevision {
 	value = 0;
 
@@ -7,9 +6,6 @@ export class RegistryRevision {
 	}
 }
 
-// Wrap, don't subclass - keeps reads on the native Map/Set fast paths.
-
-/** Map whose effective writes bump a {@link RegistryRevision}. */
 export class TrackedMap<K, V> implements ReadonlyMap<K, V> {
 	readonly #map = new Map<K, V>();
 	readonly #revision: RegistryRevision;
@@ -19,7 +15,6 @@ export class TrackedMap<K, V> implements ReadonlyMap<K, V> {
 		this.#revision = revision;
 	}
 
-	/** Number of effective writes to this map alone; lets derived data follow just this map. */
 	get version(): number {
 		return this.#version;
 	}
@@ -72,7 +67,6 @@ export class TrackedMap<K, V> implements ReadonlyMap<K, V> {
 	}
 }
 
-/** Set whose effective writes bump a {@link RegistryRevision}. */
 export class TrackedSet<T> {
 	readonly #set = new Set<T>();
 	readonly #revision: RegistryRevision;

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { builtinCredentialSecretEntries } from "../src/secrets/loaders";
 import { type SecretEntry, SecretObfuscator } from "../src/secrets/obfuscator";
 
-/** Fixed test key: same value across instances ⇒ deterministic cross-instance behavior. */
 const KEY = "K3Y-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
 const OTHER_KEY = "OTHR-KEY-00000000000000000000000000000000000000";
 
@@ -68,7 +67,7 @@ describe("obfuscator - forgery resistance", () => {
 		const o = obf([PLAIN_ENTRY]);
 		const forged = "$$FORGED_ABC123DEF456:L$$";
 		expect(o.deobfuscate(forged)).toBe(forged);
-		// even when passed through obfuscate, it must survive untouched
+
 		expect(o.obfuscate(`prefix ${forged} suffix`)).toContain(forged);
 	});
 });
@@ -78,7 +77,7 @@ describe("obfuscator - replace mode (one-way)", () => {
 		const o = obf([{ type: "plain", content: "do-not-recover", mode: "replace", replacement: "[REDACTED]" }]);
 		const hidden = o.obfuscate("the do-not-recover stays");
 		expect(hidden).toBe("the [REDACTED] stays");
-		expect(o.deobfuscate(hidden)).toBe(hidden); // one-way: nothing to restore
+		expect(o.deobfuscate(hidden)).toBe(hidden);
 	});
 });
 
@@ -95,7 +94,7 @@ describe("obfuscator - built-in credential patterns", () => {
 	const builtins = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
 	const roundTrip = (input: string): void => {
 		const hidden = builtins.obfuscate(input);
-		expect(hidden).not.toContain(input.slice(4)); // the token body never survives
+		expect(hidden).not.toContain(input.slice(4));
 		expect(builtins.deobfuscate(hidden)).toBe(input);
 	};
 

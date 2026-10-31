@@ -8,14 +8,6 @@ import {
 import type { SecretObfuscator } from "../src/secrets/obfuscator";
 import { SecretObfuscator as Obf } from "../src/secrets/obfuscator";
 
-/**
- * Cache-stability guarantees. Providers bill cache misses per rewritten prefix
- * byte; these tests pin the properties that keep the provider cache intact:
- *   1. hashing happens before first transmission (no raw-then-hashed churn),
- *   2. placeholders are deterministic (same key+value ⇒ same bytes),
- *   3. re-obfuscation of already-sent text is a byte no-op (fixed point),
- *   4. the persist-mode reveal → re-hash round trip reproduces prior bytes.
- */
 const KEY = "K3Y-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
 const SECRET = "pink-floyd-12345678";
 const SECRET_VALUE = "some tool output with pink-floyd-12345678 inside";
@@ -37,7 +29,7 @@ describe("cache stability", () => {
 
 		const req1 = obfuscateProviderContext(o, { messages: [user] });
 		const req2 = obfuscateProviderContext(o, { messages: [user] });
-		expect(bytes(req1.messages)).toBe(bytes(req2.messages)); // deterministic, not just equal shadows
+		expect(bytes(req1.messages)).toBe(bytes(req2.messages));
 	});
 
 	test("already-hashed text is a byte no-op across ten passes (fixed point)", () => {
@@ -55,36 +47,33 @@ describe("cache stability", () => {
 		const o = obf();
 		const user = { role: "user", content: `key: ${SECRET}`, timestamp: 0 } as unknown as AgentMessage;
 
-		// turn 1 request - the only bytes the provider ever saw
 		const req1 = obfuscateProviderContext(o, { messages: [user] });
 		const hashedUser = req1.messages[0];
 		const placeholder = ((hashedUser as { content: string }).content.match(/\$\$[A-Z]+_[A-Z0-9]{12}:[ULCM]\$\$/) ??
 			[])[0];
 		expect(placeholder).toBeDefined();
 
-		// the model replies quoting what it saw, then message_end reveals (persist mode)
 		const assistant = {
 			role: "assistant",
 			content: [{ type: "text", text: `use the token ${placeholder}` }],
 		} as unknown as AgentMessage;
 		const revealed = deobfuscateAssistantContent(o, assistant.content);
-		expect((revealed[0] as { text: string }).text).toContain(SECRET); // human-visible state
+		expect((revealed[0] as { text: string }).text).toContain(SECRET);
 
-		// turn 2 request carries the REVEALED assistant message; context must re-hash it
 		const turn2 = [
 			{ role: "user", content: "continue", timestamp: 1 } as unknown as AgentMessage,
 			{ ...assistant, content: revealed } as unknown as AgentMessage,
 		];
 		const req2 = obfuscateProviderContext(o, { messages: turn2 });
 		const seenAssistant = req2.messages[1];
-		expect(bytes([seenAssistant])).toBe(bytes([assistant])); // byte-identical to what turn 1's request carried in history terms
+		expect(bytes([seenAssistant])).toBe(bytes([assistant]));
 	});
 
 	test("tool-call reveal (deobfuscate) restores the same value the obfuscator knows, without rewriting other fields", () => {
 		const o = obf();
 		const toolInput = { path: "/f", old: SECRET, new: "replacement" };
 		const fixed = deobfuscateToolArguments(o, { ...toolInput });
-		expect(fixed.old).toBe(SECRET); // already-real input passes through unchanged (deobfuscate is an identity on plain values)
+		expect(fixed.old).toBe(SECRET);
 		const hashed = o.obfuscate(SECRET_VALUE);
 		expect(hashed).not.toContain(SECRET);
 		expect(o.deobfuscate(hashed)).toBe(SECRET_VALUE);

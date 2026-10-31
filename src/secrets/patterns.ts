@@ -1,21 +1,18 @@
 import { SENSITIVE_TOKEN_RE } from "./regex";
 
 export interface CredentialPattern {
-	/** Model-visible friendly label for reversible placeholders. */
 	name: string;
 	source: string;
 	flags?: string;
-	/** Literal prefixes, at least one per match - text without any skips the regex; must be exhaustive or a secret slips through. */
+
 	literalPrefixes?: readonly string[];
 }
 
-const B = "(?<![A-Za-z0-9_-])"; // left boundary
-const E = "(?![A-Za-z0-9_-])"; // right boundary
+const B = "(?<![A-Za-z0-9_-])";
+const E = "(?![A-Za-z0-9_-])";
 
-// PEM private-key block: -----BEGIN [label] PRIVATE KEY----- body -----END [label] PRIVATE KEY-----
 const PEM_PRIVATE_KEY_SOURCE = "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]*PRIVATE KEY-----";
 
-/** Anchored vendor-prefix credential shapes. No generic keyword/entropy rules: a coding agent must still be able to read identifiers like `token_expiry_seconds`. */
 export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
 	{
 		name: "Credential",

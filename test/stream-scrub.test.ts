@@ -12,7 +12,6 @@ function obf(): SecretObfuscator {
 	return new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
 }
 
-/** Feed `input` through the stream scrubber in `chunk`-byte pieces, flushing at the end. */
 function stream(scrub: (t: string) => string, input: Buffer, chunk = 700): Buffer {
 	const chunks: Buffer[] = [];
 	const s = createStreamScrubber({
@@ -26,7 +25,7 @@ function stream(scrub: (t: string) => string, input: Buffer, chunk = 700): Buffe
 
 describe("stream scrub - user_bash at-rest", () => {
 	test("a long JWT arriving in small chunks is scrubbed whole, not fragment by fragment", () => {
-		const jwt = JWT_MARKER.repeat(220); // ~14 KB: many times the old hold-back window
+		const jwt = JWT_MARKER.repeat(220);
 		const input = Buffer.from(`token: ${jwt}\n`);
 		const out = stream((t) => scrubText(obf(), t), input).toString("utf8");
 		expect(out).not.toContain(JWT_MARKER);
@@ -57,7 +56,7 @@ describe("stream scrub - user_bash at-rest", () => {
 		const input = `x\nTOKEN=${secret}\n`;
 		const chunks: Buffer[] = [];
 		const s = createStreamScrubber({ onData: (c) => chunks.push(c), scrub: (t) => scrubText(obf(), t) });
-		const cut = input.indexOf(secret) + 3; // split mid-token
+		const cut = input.indexOf(secret) + 3;
 		s.write(Buffer.from(input.slice(0, cut)));
 		s.write(Buffer.from(input.slice(cut)));
 		s.flush();
@@ -97,7 +96,7 @@ describe("stream scrub - user_bash at-rest", () => {
 	});
 
 	test("a newline-free blob past the line cap degrades: emitted in fragments, byte-exact when secret-free", () => {
-		const raw = Buffer.from("A".repeat(70 * 1024)); // > 64 KiB line cap
+		const raw = Buffer.from("A".repeat(70 * 1024));
 		const out = stream((t) => scrubText(obf(), t), raw, 4096);
 		expect(Buffer.compare(out, raw)).toBe(0);
 	});

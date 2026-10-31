@@ -2,10 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-/** Settings resolution: pi.getSettings().secrets → `<agentDir>/settings.json` → defaults(false); the legacy `secrets.mode` key is read and ignored. */
-
 export interface SecretsSettings {
-	/** Master switch; off = the extension is a complete no-op. */
 	enabled: boolean;
 }
 
@@ -25,7 +22,6 @@ function normalize(raw: unknown): SecretsSettings | undefined {
 }
 
 function readFromApi(pi: ExtensionAPI): SecretsSettings | undefined {
-	// `Settings` is a closed interface - read extension keys via the index signature.
 	const api = pi as unknown as { getSettings?: () => Record<string, unknown> };
 	const settings = api.getSettings?.();
 	if (settings === undefined) return undefined;
@@ -43,7 +39,6 @@ function readFromFile(agentDir: string): SecretsSettings | undefined {
 	}
 }
 
-/** Resolve the effective secrets settings for a session. */
 export function readSecretsSettings(pi: ExtensionAPI, agentDir: string): SecretsSettings {
 	return readFromApi(pi) ?? readFromFile(agentDir) ?? { ...DEFAULTS };
 }

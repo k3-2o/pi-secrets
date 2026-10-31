@@ -17,25 +17,16 @@ function isSecretName(name: string): boolean {
 	return /[a-z]/.test(before) && /[A-Z]/.test(m[1][0]);
 }
 
-// Group 2 captures the operator: `:` is YAML/config shape in plain text but a type/object member in source code.
-// Name bounded to 64 chars: unbounded `*` backtracks quadratically when a long non-assignment
-// run (e.g. a hex blob) fails to find `=`/`:`, and the streaming scrub now feeds whole lines.
 const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]{0,63})["']?\s*(=|:)/g;
-// Quoted alternatives span whitespace: `KEY="a b"` is a single value. The unquoted
-// alternative stays whitespace-delimited; a value may still not START with a quote
-// unless the line was quoted (an unclosed quote falls through and stays raw).
+
 const VALUE_RE = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s"']{1,}))/;
-// Scheme bounded to 31 chars: with the i flag `[a-z]` matches any letter and the unbounded
-// `*` backtracks quadratically on a long run that never reaches `://` (a hex/blob dump).
-// Password class matches the loader's collector ([^/?#\s]+): both allow `@`, so a URL
-// whose password contains it is masked whole instead of truncated at the first `@`.
+
 const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]{0,30}:\/\/[^/:@?#\s]*:([^/?#\s]+)@/gi;
 
 const TRAILING_PUNCT_RE = /[;,)\]}]+$/;
-// Values that carry bracket/call syntax are expressions, not credential tokens. Operators that live
-// passwords legitimately use (`& ! ? ~ % ^ * + # - =`) must NOT be listed: `PASSWORD=Tr0ub4dor&3` is a secret.
+
 const CODE_VALUE_RE = /[()[\]{}<>|`]/;
-// `a.b.c` as a whole value is a member reference, never a credential (dots inside longer mixed values stay allowed).
+
 const DOTTED_REFERENCE_RE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/;
 const JS_LITERAL_VALUES = new Set(["undefined", "null", "true", "false", "NaN", "Infinity"]);
 
@@ -56,7 +47,6 @@ const CODE_LINE_RE =
 const CODE_MIN_LINES = 3;
 const CODE_MIN_RATIO = 0.15;
 
-// Credential-dump text (`.env`, transcripts, folded dumps) never stacks up code markers; source reads always do.
 function looksLikeCode(text: string): boolean {
 	let nonEmpty = 0;
 	let code = 0;
@@ -74,7 +64,6 @@ function acceptedUnquotedValue(raw: string): string | undefined {
 	return value;
 }
 
-// Only runtime-learned (auto-captured) values are eligible; configured secrets.yml/env entries are never touched.
 function evictContradicted(obfuscator: SecretObfuscator, text: string): void {
 	ASSIGNMENT_NAME_RE.lastIndex = 0;
 	let match: RegExpExecArray | null;
@@ -102,10 +91,9 @@ function assignmentCandidates(text: string): AssignmentCandidate[] {
 		if (valueMatch === null) continue;
 		const raw = valueMatch[1] ?? valueMatch[2] ?? valueMatch[3];
 		const quoted = valueMatch[1] !== undefined || valueMatch[2] !== undefined;
-		// In code-shaped text an unquoted `name: value` is a type/object member, not a credential line.
+
 		if (codeShaped && operator === ":" && !quoted) continue;
-		// In code-shaped text a quoted value must not read as code vocabulary: short values (`"option:0"`,
-		// `"Map:"`) and letter-only identifiers (`"systemPromptColor"`) are labels, not credentials.
+
 		if (codeShaped && quoted && (raw.length < 12 || /^[A-Za-z]+$/.test(raw))) continue;
 		let value = raw;
 		if (!quoted) {
@@ -114,7 +102,7 @@ function assignmentCandidates(text: string): AssignmentCandidate[] {
 			value = accepted;
 		}
 		if (value.includes("$$")) continue;
-		// Trimming only ever removes trailing characters, so the start offset is unchanged.
+
 		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(raw);
 		out.push({ name: match[1], value, valueStart, valueEnd: valueStart + value.length, quoted });
 	}

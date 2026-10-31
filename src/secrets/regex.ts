@@ -2,7 +2,6 @@ function enforceGlobalFlag(flags: string): string {
 	return flags.includes("g") ? flags : `${flags}g`;
 }
 
-/** Compile a secret regex entry with global scanning enabled by default. */
 export function compileSecretRegex(pattern: string, flags?: string): RegExp {
 	let resolvedPattern = pattern;
 	let resolvedFlags = flags ?? "";
@@ -10,7 +9,7 @@ export function compileSecretRegex(pattern: string, flags?: string): RegExp {
 	const literalMatch = /^\/((?:[^\\/]|\\.)*)\/([ gimsuy]*)$/.exec(pattern);
 	if (literalMatch) {
 		resolvedPattern = literalMatch[1];
-		// Merge literal and explicit flags, deduplicated.
+
 		const combined = new Set([...resolvedFlags, ...literalMatch[2]]);
 		resolvedFlags = [...combined].join("");
 	}
@@ -18,9 +17,6 @@ export function compileSecretRegex(pattern: string, flags?: string): RegExp {
 	return new RegExp(resolvedPattern, enforceGlobalFlag(resolvedFlags));
 }
 
-/**
- * Credential-shaped token patterns scrubbed from outbound provider traffic.
- */
 export function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
