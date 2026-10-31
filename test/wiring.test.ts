@@ -259,6 +259,31 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 		expect(disabled).toBeUndefined();
 	});
 
+	test("a timed-out exec still delivers the held tail before rejecting", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const { operations } = (await fake.run("user_bash", {
+			type: "user_bash",
+			command: "printf %s 'heldfrag-no-newline'; sleep 0.3",
+			excludeFromContext: false,
+			cwd,
+		})) as { operations: BashOperations };
+
+		const chunks: Buffer[] = [];
+		const outcome = await operations
+			.exec(`printf %s 'heldfrag-no-newline'; sleep 0.3`, cwd, {
+				onData: (d) => chunks.push(d),
+				signal: AbortSignal.timeout(50),
+			})
+			.catch((err: unknown) => ({ rejected: String(err) }));
+		// Abort rejects the exec; the wrapper must flush the no-newline-held tail
+		// into onData before that, so the session record is not missing the last bytes.
+		expect(outcome).toHaveProperty("rejected");
+		expect(chunks.join("")).toContain("heldfrag-no-newline");
+	});
+
 	test("disabled session: every handler is a no-op and the transformer is a pass-through", async () => {
 		const fake = makeFakePi(false);
 		extensionFactory(fake.pi);

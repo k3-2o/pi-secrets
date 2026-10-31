@@ -46,6 +46,12 @@ function scrubBashOperations(obfuscator: SecretObfuscator): BashOperations {
 				.then((result) => {
 					stream.flush(); // deliver the held tail (PEM block / partial line) on success
 					return result;
+				})
+				.catch((err) => {
+					// pi's exec rejects on timeout/abort: flush first so the held tail
+					// still reaches the session record, then propagate the failure.
+					stream.flush();
+					throw err;
 				});
 		},
 	};
