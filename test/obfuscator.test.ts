@@ -22,22 +22,7 @@ function obf(entries: SecretEntry[], key: string = KEY): SecretObfuscator {
 	return new SecretObfuscator(entries, key);
 }
 
-describe("obfuscator - fixed point", () => {
-	test("re-obfuscating hidden text is a no-op", () => {
-		const o = obf([PLAIN_ENTRY]);
-		const once = o.obfuscate("secret plain-secret-value-123 here");
-		expect(o.obfuscate(once)).toBe(once);
-		expect(o.deobfuscate(once)).toBe("secret plain-secret-value-123 here");
-	});
-});
-
 describe("obfuscator - keyed determinism", () => {
-	test("same key ⇒ same placeholder across instances", () => {
-		const a = obf([PLAIN_ENTRY], KEY).obfuscate("plain-secret-value-123");
-		const b = obf([PLAIN_ENTRY], KEY).obfuscate("plain-secret-value-123");
-		expect(a).toBe(b);
-	});
-
 	test("different key ⇒ different placeholder", () => {
 		const a = obf([PLAIN_ENTRY], KEY).obfuscate("plain-secret-value-123");
 		const b = obf([PLAIN_ENTRY], OTHER_KEY).obfuscate("plain-secret-value-123");

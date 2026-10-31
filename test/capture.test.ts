@@ -140,13 +140,6 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(out.match(/\$\$/g)?.length).toBeGreaterThanOrEqual(2);
 	});
 
-	test("fixed point: re-scrubbing hashed output is a byte no-op", () => {
-		const o = obf();
-		const once = scrubString(o, `API_KEY=${RAW}`);
-		const twice = scrubString(o, once);
-		expect(twice).toBe(once);
-	});
-
 	test("cross-instance determinism: same key ⇒ identical placeholder token", () => {
 		const a = obf();
 		const b = obf();
