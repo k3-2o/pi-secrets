@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1 — 2026-11-01
+
+- Quoted credential values containing spaces, like `KEY="a b c"`, are captured and masked instead of passing through raw.
+- `od -c` control tokens (`\n`, `\t`, `\r`) fold to the real control characters, so a secret split across a control token no longer escapes detection.
+- Secrets longer than 1 KiB in streaming shell output (JWTs, URLs, user-regex matches) are held to the line end and scrubbed whole instead of leaking in fragments.
+- `xxd` dump folding no longer re-decodes the ASCII column as hex, applies overlapping dump regions shift-correctly, and no longer glues following lines onto the placeholder.
+- URL passwords containing `@` are masked whole instead of truncated at the first `@`.
+- A timed-out `user_bash` exec still delivers its buffered output tail instead of dropping the last bytes.
+
 ## 0.4.0 — 2026-10-25
 
 - Auto-capture no longer registers source-code values as secrets.
