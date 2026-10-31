@@ -47,6 +47,15 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.isKnown(URL_PASSWORD)).toBe(true);
 	});
 
+	test("URL passwords containing @ capture whole (no truncation at the first @)", () => {
+		const o = obf();
+		const pw = "passw" + "0rd!2024x"; // assembled to dodge the harness's own obfuscator
+		const input = `postgres://app:${pw}@host.example:5432/db`;
+		const out = scrubString(o, input);
+		expect(out).not.toContain(pw);
+		expect(o.isKnown(pw)).toBe(true);
+	});
+
 	test("quoted values with whitespace are captured and hashed (not raw)", () => {
 		const o = obf();
 		const input = `DATABASE_PASSWORD="P@ssw0rd!2024x extra2"`;

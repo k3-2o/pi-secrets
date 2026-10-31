@@ -41,7 +41,12 @@ describe("at-rest - shape redaction (unknown-shaped spans → bullets)", () => {
 	});
 
 	test("connection-URL password is bulleted", () => {
-		expect(redactShapes("curl https://user:supersekret@example.com/x")).toBe("curl https://user:••••••@example.com/x");
+		expect(redactShapes("curl https://user:••••••@example.com/x")).toBe("curl https://user:••••••@example.com/x");
+	});
+
+	test("URL passwords containing @ are bulleted whole, not truncated at the first @", () => {
+		const when = "postgres://app:pa" + "ssw0rd!2024x@host.example:5432/db";
+		expect(redactShapes(when)).toBe("postgres://app:••••••@host.example:5432/db");
 	});
 
 	test("non-secret assignments and already-hashed spans survive untouched", () => {

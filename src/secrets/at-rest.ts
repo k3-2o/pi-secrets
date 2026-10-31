@@ -27,7 +27,9 @@ const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]{0,63})["']?\s*(=|:)/g;
 const VALUE_RE = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s"']{1,}))/;
 // Scheme bounded to 31 chars: with the i flag `[a-z]` matches any letter and the unbounded
 // `*` backtracks quadratically on a long run that never reaches `://` (a hex/blob dump).
-const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]{0,30}:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
+// Password class matches the loader's collector ([^/?#\s]+): both allow `@`, so a URL
+// whose password contains it is masked whole instead of truncated at the first `@`.
+const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]{0,30}:\/\/[^/:@?#\s]*:([^/?#\s]+)@/gi;
 
 const TRAILING_PUNCT_RE = /[;,)\]}]+$/;
 // Values that carry bracket/call syntax are expressions, not credential tokens. Operators that live
