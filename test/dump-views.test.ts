@@ -103,6 +103,51 @@ describe("phase 10 - dump-format decode views", () => {
 		expect(twice).toBe(once);
 	});
 });
+describe("phase 10 - od -c control tokens fold to real control chars", () => {
+	// Build an od -c shaped dump: 7-digit octal address + 3 spaces, tokens 3-space
+	// separated, control characters rendered as their two-char backslash tokens.
+	function odC(data: string): string {
+		const tok = [...data].map((c) =>
+			c === "\n" ? "\\n" : c === "\t" ? "\\t" : c === "\r" ? "\\r" : c === " " ? "sp" : c,
+		);
+		const rows: string[] = [];
+		for (let i = 0; i < tok.length; i += 16) {
+			rows.push(`${i.toString(8).padStart(7, "0")}   ${tok.slice(i, i + 16).join("   ")}`);
+		}
+		if (tok.length > 0) rows.push(tok.length.toString(8).padStart(7, "0"));
+		return rows.join("\n");
+	}
+
+	test("a newline-bearing secret folds to its real bytes and hashes when dumped", () => {
+		const secret = "ab\ncd ef"; // 8 chars, over the floor
+		expect(secret.length).toBe(8);
+		const o = obf([{ content: secret }]);
+		const dump = odC(secret);
+		const out = scrubString(o, dump);
+		// Letter-injection would fold to "abncd ef", which never matches, and the
+		// dump would pass raw. Real control folding reconstructs the exact value.
+		expect(out).not.toContain(secret);
+		expect(out).toContain("$$");
+	});
+
+	test("a tab-bearing secret folds and captures as a plain registered value", () => {
+		const secret = "ab\tcd ef";
+		const o = obf([{ content: secret }]);
+		const dump = odC(secret);
+		const out = scrubString(o, dump);
+		expect(out).not.toContain(secret);
+		expect(out).toContain("$$");
+	});
+
+	test("control tokens in a secret-free dump leave the output byte-identical", () => {
+		const o = obf();
+		const dump = odC("a\nb\nc\n");
+		const before = scrubString(o, "plain prose"); // warm nothing
+		void before;
+		expect(scrubString(o, dump)).toBe(dump);
+	});
+});
+
 describe("session-proven dump shapes", () => {
 	const VAL = "x1234567890x1234567890x1234567890";
 	test("char-per-line [x] NN loop (turn-25 shape) folds to a hash", () => {

@@ -42,7 +42,13 @@ function odCFoldRegions(text: string): Region[] {
 				.filter(Boolean)) {
 				if (t.length === 1 && t.charCodeAt(0) >= 32 && t.charCodeAt(0) < 127) folded += t;
 				else if (t === "sp") folded += " ";
-				else if (t === "\\n" || t === "\\t" || t === "\\r" || t === "\\\\") folded += t.slice(1);
+				// Control tokens fold to their real characters - mapping them to letters
+				// (n/t/r) glues content AND injects bytes a registered secret can never
+				// match, so a control-bearing dump would pass undetected.
+				else if (t === "\\n") folded += "\n";
+				else if (t === "\\t") folded += "\t";
+				else if (t === "\\r") folded += "\r";
+				else if (t === "\\\\") folded += "\\";
 			}
 			lastIdx = k;
 		}
