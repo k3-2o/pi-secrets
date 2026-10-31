@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { builtinCredentialSecretEntries } from "../src/secrets";
 import { captureUnregistered, scrubString } from "../src/secrets/at-rest";
+import { builtinCredentialSecretEntries } from "../src/secrets/loaders";
 import { obfuscateMessages } from "../src/secrets/message-transform";
 import { type SecretEntry, SecretObfuscator } from "../src/secrets/obfuscator";
 

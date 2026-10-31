@@ -11,8 +11,8 @@ import type {
 	UserBashEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { createLocalBashOperations, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { buildSecretObfuscator } from "./src/secrets";
 import { scrubString as scrubText, scrubToolResult } from "./src/secrets/at-rest";
+import { buildSecretObfuscator } from "./src/secrets/loaders";
 import { deobfuscateToolArguments, obfuscateMessages } from "./src/secrets/message-transform";
 import type { JsonValue, SecretObfuscator } from "./src/secrets/obfuscator";
 import { readSecretsSettings } from "./src/settings";

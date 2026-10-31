@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { builtinCredentialSecretEntries } from "../src/secrets";
+import { builtinCredentialSecretEntries } from "../src/secrets/loaders";
 import { type SecretEntry, SecretObfuscator } from "../src/secrets/obfuscator";
 
 /** Fixed test key: same value across instances ⇒ deterministic cross-instance behavior. */

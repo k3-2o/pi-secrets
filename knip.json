@@ -2,7 +2,7 @@
  "$schema": "https://unpkg.com/knip@6/schema.json",
  "entry": [
   "index.ts",
-  "src/secrets/index.ts",
+  "src/secrets/loaders.ts",
   "test/**/*.ts"
  ],
  "ignoreDependencies": [

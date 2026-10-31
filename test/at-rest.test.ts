@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildSecretObfuscator } from "../src/secrets";
 import { redactShapes, scrubJsonValue, scrubString, scrubToolResult } from "../src/secrets/at-rest";
+import { buildSecretObfuscator } from "../src/secrets/loaders";
 import { SecretObfuscator } from "../src/secrets/obfuscator";
 import { readSecretsSettings } from "../src/settings";
 

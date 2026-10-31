@@ -9,7 +9,7 @@ import {
 	getExistingSecretPlaceholderKey,
 	getSecretPlaceholderKey,
 	loadSecrets,
-} from "../src/secrets";
+} from "../src/secrets/loaders";
 
 /** Same name rule as the loader; used to make env-dependent tests hermetic. */
 const SECRET_NAME_RE = /(?:KEY|SECRET|TOKEN|PASSWORD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(?:_|$)/i;
