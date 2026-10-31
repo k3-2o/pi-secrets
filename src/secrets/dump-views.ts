@@ -2,7 +2,9 @@ import { captureUnregistered } from "./at-rest";
 import type { SecretObfuscator } from "./obfuscator";
 
 const OCTAL_ADDR_RE = /^[0-7]{7,8}(?: {3}|\s{2,})/;
-const HEXPAIR_RUN_RE = /(?:[0-9a-fA-F]{2}[ \t]+)+[0-9a-fA-F]{2}/g;
+// \b-guarded like the xxd line fold: without boundaries the run decodes ASCII-column
+// text as hex (tail rows leak \"4V\"-style garbage into the fold).
+const HEXPAIR_RUN_RE = /(?:\b[0-9a-fA-F]{2}\b[ \t]+)+\b[0-9a-fA-F]{2}\b/g;
 const B64_RUN_RE = /[A-Za-z0-9+/]{16,}={0,2}/g;
 type Region = [number, number, string];
 
@@ -53,7 +55,8 @@ function odCFoldRegions(text: string): Region[] {
 			lastIdx = k;
 		}
 		const seg = `${lines.slice(li, lastIdx + 1).join("\n")}\n`;
-		let end = regionStart + seg.length;
+		// Exclude the last row's trailing newline so the fold never glues the next content.
+		let end = regionStart + seg.length - 1;
 		if (end > text.length) end = text.length;
 		if (folded.length >= 4) out.push([regionStart, end, folded]);
 		for (let k = li; k <= lastIdx; k++) offset += lines[k].length + 1;
@@ -73,17 +76,36 @@ function hexFoldRegions(text: string): Region[] {
 		if (bytes.length >= 4 && /[ -~]/.test(bytes)) out.push([m.index, m.index + m[0].length, bytes]);
 	}
 
-	const LINE_RE = /^[0-9a-fA-F]+:\s+((?:[0-9a-fA-F]{2,4}[ \t]+)+[0-9a-fA-F]{2,4})\s+(.+)$/;
+	// Row parser: the hex area and ASCII column mirror the SAME bytes, so a parse is
+	// accepted only when decoded hex bytes equal ASCII render length. That rejects
+	// ASCII-column text absorbed as hex (`3456` -> 4V) while accepting both 2- and
+	// 4-char group widths (GNU vs toybox xxd).
+	function parseXxdRow(line: string): { groups: string; bytes: string } | undefined {
+		const head = /^([0-9a-fA-F]{7,8}): (.*)$/.exec(line);
+		if (head === null) return undefined;
+		const rest = head[2];
+		const candidates: Array<{ groups: string; ascii: string }> = [];
+		const grouped = /((?:\b[0-9a-fA-F]{2,4}\b[ \t]+)*\b[0-9a-fA-F]{2,4}\b)[ \t]+([ -~]{1,})$/.exec(rest);
+		if (grouped !== null) candidates.push({ groups: grouped[1], ascii: grouped[2].trimEnd() });
+		const gap = / {2,}/.exec(rest);
+		if (gap !== null)
+			candidates.push({ groups: rest.slice(0, gap.index).trim(), ascii: rest.slice(gap.index).trimStart().trimEnd() });
+		for (const c of candidates) {
+			const bytes = hexPairsToBytes(c.groups);
+			if (bytes.length > 0 && bytes.length === c.ascii.length) return { groups: c.groups, bytes };
+		}
+		return undefined;
+	}
 	const lines = text.split("\n");
 	for (let li = 0; li < lines.length; li++) {
-		const m = LINE_RE.exec(lines[li]);
-		if (m === null) continue;
+		const first = parseXxdRow(lines[li]);
+		if (first === undefined) continue;
 		let bytes = "";
 		let lastIdx = li;
 		for (let k = li; k < lines.length; k++) {
-			const mk = LINE_RE.exec(lines[k]);
-			if (mk === null) break;
-			const b = hexPairsToBytes(mk[1]);
+			const mk = parseXxdRow(lines[k]);
+			if (mk === undefined) break;
+			const b = mk.bytes;
 			if (b.length < 4 || !/[ -~]/.test(b)) break;
 			bytes += b;
 			lastIdx = k;
@@ -96,6 +118,7 @@ function hexFoldRegions(text: string): Region[] {
 		for (let k = 0; k < li; k++) start += lines[k].length + 1;
 		let end = start;
 		for (let k = li; k <= lastIdx; k++) end += lines[k].length + 1;
+		end -= 1; // exclude the last row's trailing newline (no content gluing)
 		if (end > text.length) end = text.length;
 		out.push([start, end, bytes]);
 		li = lastIdx;
@@ -105,7 +128,7 @@ function hexFoldRegions(text: string): Region[] {
 
 function noAddressHexFoldRegions(text: string): Region[] {
 	const out: Region[] = [];
-	const NO_ADDR_LINE = /^((?:[0-9a-fA-F]{2}[ \t]+)+[0-9a-fA-F]{2})\s{2}([ -~]{1,})$/;
+	const NO_ADDR_LINE = /^((?:\b[0-9a-fA-F]{2}\b[ \t]+)*\b[0-9a-fA-F]{2}\b)\s{2}([ -~]{1,})$/;
 	const lines = text.split("\n");
 	let offset = 0;
 	for (let li = 0; li < lines.length; li++) {
@@ -129,6 +152,7 @@ function noAddressHexFoldRegions(text: string): Region[] {
 			end += lines[k].length + 1;
 			k += 1;
 		}
+		end -= 1; // exclude the last row's trailing newline
 		out.push([offset, Math.min(end, text.length), bytes]);
 		offset = end;
 		li = k - 1;
@@ -178,6 +202,7 @@ function charLineFoldRegions(text: string): Region[] {
 			end += lines[k].length + 1;
 			k += 1;
 		}
+		end -= 1; // exclude the last row's trailing newline
 		if (folded.length >= 4) out.push([offset, Math.min(end, text.length), folded]);
 		offset = end;
 		li = k - 1;
@@ -204,13 +229,26 @@ function b64Regions(text: string): Region[] {
 
 function redactFoldedRegions(obfuscator: SecretObfuscator, text: string, regions: Region[]): string {
 	if (regions.length === 0) return text;
-	const sorted = regions.slice().sort((a, b) => b[0] - a[0]);
+	// Regions from one family are computed on the source text and can overlap each
+	// other (bare hex runs sit inside row blocks). Applying overlapping or stale
+	// offsets corrupts the transcript (glued lines, second dump leak). Walk ascending,
+	// keep a disjoint set, and shift later positions by prior replacements.
+	const sorted = regions.slice().sort((a, b) => a[0] - b[0]);
 	let out = text;
+	let shift = 0;
+	let lastEnd = 0;
 	for (const [start, end, folded] of sorted) {
-		if (start >= out.length || end > out.length) continue;
+		if (start < lastEnd) continue; // overlapping: the earlier-starting region covers the same content
+		const s = start + shift;
+		const e = end + shift;
+		if (s < 0 || e > out.length) continue; // stale: drops out of the already-shortened text
 		captureUnregistered(obfuscator, folded, { skipValueVeto: true });
 		const hashed = obfuscator.obfuscate(folded);
-		if (hashed !== folded) out = out.slice(0, start) + hashed + out.slice(end);
+		if (hashed !== folded) {
+			out = out.slice(0, s) + hashed + out.slice(e);
+			shift += hashed.length - (end - start);
+		}
+		lastEnd = end;
 	}
 	return out;
 }

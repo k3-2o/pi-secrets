@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { scrubString } from "../src/secrets/at-rest";
+import { builtinCredentialSecretEntries } from "../src/secrets/loaders";
 import { SecretObfuscator } from "../src/secrets/obfuscator";
 
 const KEY = "probe-key-0123456789abcdef";
@@ -145,6 +146,46 @@ describe("phase 10 - od -c control tokens fold to real control chars", () => {
 		const before = scrubString(o, "plain prose"); // warm nothing
 		void before;
 		expect(scrubString(o, dump)).toBe(dump);
+	});
+});
+
+describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => {
+	// Build an xxd -g1 shaped dump: 8-hex address + ": ", 16 two-hex groups joined by
+	// single spaces, 1 space before the ASCII column on full rows, 2 on tail rows.
+	function xxd(body: string): string {
+		const hex = [...body].map((c) => c.charCodeAt(0).toString(16).padStart(2, "0"));
+		const rows: string[] = [];
+		for (let i = 0; i < hex.length; i += 16) {
+			const chunk = hex.slice(i, i + 16);
+			const pad = chunk.length === 16 ? " " : "  ";
+			rows.push(`${i.toString(16).padStart(8, "0")}: ${chunk.join(" ")}${pad}${body.slice(i, i + 16)}`);
+		}
+		return rows.join("\n") + "\n";
+	}
+
+	test("a built-in secret dumped with xxd folds once; tail rows keep their ASCII column", () => {
+		const o = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
+		const secret = "sk_live_" + "Xq7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG123456";
+		const body = "prefix " + secret + " suffix";
+		const dump = xxd(body);
+		const full = "HEADER LINE\n" + dump + "TAIL LINE\n";
+		const out = scrubString(o, full);
+		expect(out).not.toContain(secret);
+		expect(out).toContain("$$");
+		// The ASCII column must not be re-decoded as hex (old bug doubled bytes
+		// into the fold, e.g. "suffix4V") and TAIL must not glue onto the hash.
+		expect(out).not.toContain("4V");
+		expect(out).toContain("TAIL LINE");
+	});
+
+	test("two identical dumps in one output are both folded (no stale offsets)", () => {
+		const o = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
+		const secret = "sk_live_" + "Xq7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG123456";
+		const dump = xxd("token " + secret);
+		const full = dump + dump;
+		const out = scrubString(o, full);
+		expect(out).not.toContain(secret);
+		expect(out.match(/\$\$/g)?.length ?? 0).toBeGreaterThanOrEqual(2); // both dumps redacted
 	});
 });
 
