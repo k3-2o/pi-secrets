@@ -15,20 +15,13 @@ import { scrubString as scrubText, scrubToolResult } from "./src/secrets/at-rest
 import { buildSecretObfuscator } from "./src/secrets/loaders";
 import { deobfuscateToolArguments, obfuscateMessages } from "./src/secrets/message-transform";
 import type { JsonValue, SecretObfuscator } from "./src/secrets/obfuscator";
+import { createStreamScrubber } from "./src/secrets/stream-scrub";
 import { readSecretsSettings } from "./src/settings";
 
 /** Content block type stored on a toolResult message (pi-ai `TextContent | ImageContent`). */
 type ContentBlock = Extract<AgentMessage, { role: "toolResult" }>["content"][number];
 
 const FLAG = "secrets";
-
-/** How many characters of bash output are held back before emitting, so a secret spanning a chunk boundary is still scrubbed in one piece. */
-const BASH_HOLD = 1024;
-
-// PEM opener in buffer: hold output until END arrives so a straddling key is scrubbed whole.
-const BASH_PEM_OPEN = "-----BEGIN ";
-const BASH_PEM_CLOSE = "-----END ";
-const BASH_PEM_MAX = 32 * 1024;
 
 interface SessionState {
 	obfuscator: SecretObfuscator | undefined;
@@ -41,48 +34,17 @@ function scrubBashOperations(obfuscator: SecretObfuscator): BashOperations {
 	const local = createLocalBashOperations();
 	return {
 		exec: (command, cwd, options) => {
-			// Buffer raw bytes, emit originals untouched when nothing secret-shaped was found (binary-safe).
-			let buffer = Buffer.alloc(0);
-			let holdOpen = false;
-			const sendRaw = (chunk: Buffer): void => {
-				if (chunk.length === 0) return;
-				const text = chunk.toString("utf8");
-				const scrubbed = scrubText(obfuscator, text);
-				options.onData(scrubbed === text ? chunk : Buffer.from(scrubbed));
-			};
+			const stream = createStreamScrubber({
+				onData: (chunk) => options.onData(chunk),
+				scrub: (text) => scrubText(obfuscator, text),
+			});
 			return local
 				.exec(command, cwd, {
 					...options,
-					onData: (data) => {
-						buffer = Buffer.concat([buffer, data]);
-						const text = buffer.toString("utf8");
-						const hasOpen = text.includes(BASH_PEM_OPEN);
-						if (hasOpen && !holdOpen) holdOpen = true;
-						if (holdOpen) {
-							if (text.includes(BASH_PEM_CLOSE)) {
-								holdOpen = false;
-								sendRaw(buffer);
-								buffer = Buffer.alloc(0);
-							} else if (buffer.length > BASH_PEM_MAX) {
-								const emitLength = buffer.length - BASH_HOLD;
-								if (emitLength > 0) {
-									sendRaw(buffer.subarray(0, emitLength));
-									buffer = buffer.subarray(emitLength);
-								}
-							}
-						} else {
-							const emitLength = buffer.length - BASH_HOLD;
-							if (emitLength > 0) {
-								sendRaw(buffer.subarray(0, emitLength));
-								buffer = buffer.subarray(emitLength);
-							}
-						}
-					},
+					onData: (data) => stream.write(data),
 				})
 				.then((result) => {
-					sendRaw(buffer);
-					buffer = Buffer.alloc(0);
-					holdOpen = false;
+					stream.flush(); // deliver the held tail (PEM block / partial line) on success
 					return result;
 				});
 		},

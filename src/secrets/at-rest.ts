@@ -18,12 +18,16 @@ function isSecretName(name: string): boolean {
 }
 
 // Group 2 captures the operator: `:` is YAML/config shape in plain text but a type/object member in source code.
-const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*(=|:)/g;
+// Name bounded to 64 chars: unbounded `*` backtracks quadratically when a long non-assignment
+// run (e.g. a hex blob) fails to find `=`/`:`, and the streaming scrub now feeds whole lines.
+const ASSIGNMENT_NAME_RE = /["']?([A-Za-z_][A-Za-z0-9_]{0,63})["']?\s*(=|:)/g;
 // Quoted alternatives span whitespace: `KEY="a b"` is a single value. The unquoted
 // alternative stays whitespace-delimited; a value may still not START with a quote
 // unless the line was quoted (an unclosed quote falls through and stays raw).
 const VALUE_RE = /^\s*(?:"([^"]+)"|'([^']+)'|([^\s"']{1,}))/;
-const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]*:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
+// Scheme bounded to 31 chars: with the i flag `[a-z]` matches any letter and the unbounded
+// `*` backtracks quadratically on a long run that never reaches `://` (a hex/blob dump).
+const CONNECTION_URL_RE = /[a-z][a-z0-9+.-]{0,30}:\/\/[^/:@?#\s]*:([^/?#@\s]+)@/gi;
 
 const TRAILING_PUNCT_RE = /[;,)\]}]+$/;
 // Values that carry bracket/call syntax are expressions, not credential tokens. Operators that live
