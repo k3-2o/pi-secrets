@@ -31,7 +31,7 @@ network endpoint, it can only do so with the placeholder it saw, not the real va
 | HTML / JSONL exports | Exports render the file (`/export [.jsonl]`), which is already hashed; the interactive-only reveal never runs in exports | Exports contain no registered key material |
 | Tool execution | `tool_call` handler deobfuscates arguments in place, immediately before the tool runs | `edit(old="…")` matches real bytes on disk; commands run with real env values |
 | Human display | The markdown transformer reveals user + assistant text at paint time in the interactive transcript | You see the real key when you or the model reference a placeholder |
-| Secret-shaped but unregistered text | `NAME=value` assignments with credential names and `scheme://user:password@host` URL passwords are **auto-captured** on first sight and registered session-scoped, hashed (`$$HASH$$`, reversible); values whose shape is deterministically a non-secret (dates, paths, UUIDs, wordlists, digit runs) are left raw | Values nobody registered cannot ride tool output into the file or the model; a manual `secrets.yml` entry is only needed for values that never appear in assignment/URL form |
+| Secret-shaped but unregistered text | `NAME=value` assignments with credential names and `scheme://user:password@host` URL passwords: assignment values are auto-captured on first sight only when key-shaped (vendor prefixes, password-like strings, 24+ hex, mixed-case alnum, credential symbols) and hashed session-scoped, reversible; prose-like, dated, path-, wordlist-, and digit-shaped values are left raw. URL passwords are always replaced by the URL branch | Values nobody registered cannot ride tool output into the file or the model; a manual `secrets.yml` entry is only needed for values that never appear in assignment/URL form or do not look like keys |
 | Dump formats | `od -c`, `hexdump`/`xxd`, and `base64` output that fragments a value into spaced chars, hex pairs, or base64 is folded back before detection | Default dump tools cannot hide a secret; the folded value is hashed like any other |
 | Placeholder forgery | The deobfuscation map only accepts placeholders minted by this obfuscator under the per-install key | A model inventing `$$FAKE$$` text gets nothing back |
 | Transcript attacks | Placeholder digests are HMAC-SHA256 under a 32-byte per-install key (`secret-placeholder.key`, mode `0600`) | A transcript reader cannot dictionary-hash a placeholder back to a secret |
@@ -86,8 +86,9 @@ placeholder, and the tool receives the real value.
    handler restores the real bytes in place.
 4. When a tool finishes, the `tool_result` handler scrubs its output (content +
    `structuredContent`, plus `details`/nested-call records at `message_end`).
-   Unregistered assignment/URL values are auto-captured first, then known values
-   become `$$HASH$$`; values under the 8-char floor stay raw.
+   Unregistered key-shaped assignment/URL values are auto-captured first, then known
+   values become `$$HASH$$`; values under the 8-char floor and non-key-shaped values
+   stay raw.
 5. When a message ends, the `message_end` handler hashes user + assistant text for
    storage. System messages are never touched.
 6. `!`-commands run through a scrubbing wrapper of pi's own shell operations; the
@@ -111,9 +112,12 @@ gone for everyone, including an attacker who stole the old key.
   by observation; each new session re-learns values on first sight. Nothing learned
   is persisted, no growing on-disk registry, and deterministic keyed hashing keeps
   the same secret hashing to the same token in every session.
-- **Bare shapeless prose values stay raw.** Auto-capture uses the credential-*name*
-  gate and URL passwords only. A value in no assignment, no URL, and matching no
-  built-in shape (e.g. a bare vendor token in plain prose) passes through as-is. Register it in `secrets.yml` if it matters.
+- **Bare shapeless prose values stay raw.** Auto-capture requires a credential *name*
+  and a key-shaped value; URL passwords are the exception, replaced by their branch
+  alone. A value in no assignment, no URL, and matching no built-in shape (e.g. a bare
+  vendor token in plain prose) passes through as-is unless the vendor net matches its
+  prefix. All-caps or dotted runs that do not look like keys also stay raw; register
+  them in `secrets.yml` if they matter.
 
 ## Enabling safety in practice
 

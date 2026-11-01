@@ -64,19 +64,16 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.isKnown("P@ssw0rd!2024x extra2")).toBe(true);
 	});
 
-	test("single-quoted and YAML-colon whitespace values capture too", () => {
+	test("single-quoted and YAML-colon whitespace values capture; prose-like spaces stay raw", () => {
 		const o = obf();
-		const cases = [
-			`DB_PASSWORD='P@ssw0rd!2024x extra2'`,
-			`token: "P@ssw0rd!2024x extra2"`,
-			`API_MASTER_KEY="x1 x2 x3 x4 x5 x6"`,
-		];
+		const cases = [`DB_PASSWORD='P@ssw0rd!2024x extra2'`, `token: "P@ssw0rd!2024x extra2"`];
 		for (const input of cases) {
 			const out = scrubString(o, input);
 			expect(out).toContain("$$");
 			expect(out).not.toContain("P@ssw0rd");
-			expect(out).not.toContain("x1 x2");
 		}
+		// space-separated value with no credential-class symbol is prose, not a key
+		expect(scrubString(o, 'API_MASTER_KEY="x1 x2 x3 x4 x5 x6"')).toBe('API_MASTER_KEY="x1 x2 x3 x4 x5 x6"');
 	});
 
 	test("quoted values: trailing punctuation inside quotes is kept, empty values stay raw", () => {

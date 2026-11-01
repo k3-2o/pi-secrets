@@ -178,6 +178,7 @@ export function captureUnregistered(
 	};
 
 	for (const c of assignmentCandidates(text)) {
+		if (valueRedactionVerdict(c.name, c.value) === "keep") continue;
 		tryCapture(c.value, c.name);
 	}
 

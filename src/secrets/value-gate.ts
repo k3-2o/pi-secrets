@@ -46,7 +46,6 @@ const VETO_SHAPES: ReadonlySet<ValueShape> = new Set([
 	"unix-seconds",
 	"unix-ms",
 	"version",
-	"uuid",
 	"path",
 	"wordlist",
 	"lowercase-word",
@@ -55,6 +54,10 @@ const VETO_SHAPES: ReadonlySet<ValueShape> = new Set([
 ]);
 
 const PASSWORD_NAME_RE = /(?:PASSWORD|PASSWD|PASS)(?:_|$)/i;
+
+const IDENTIFIER_NAME_RE = /(?:^|_)ID$/i;
+
+const CREDENTIAL_SYMBOL_RE = /[&!?~%^*+#=@]/;
 
 export function classifyValueShape(value: string): ValueShape {
 	if (value.length === 0) return "empty";
@@ -102,9 +105,25 @@ export function valueRedactionVerdict(
 	if (shape === "vendor-key") {
 		return value.length >= floor ? "mask" : "keep";
 	}
+	if (shape === "uuid") {
+		return IDENTIFIER_NAME_RE.test(name) ? "keep" : "mask";
+	}
 	if (PASSWORD_NAME_RE.test(name) && (shape === "passwordish" || shape === "other")) return "mask";
 	if (value.length < floor) return "keep";
-	return "mask";
+	if (isKeyShapedValue(shape, value, floor)) return "mask";
+	return "keep";
+}
+
+function isKeyShapedValue(shape: ValueShape, value: string, floor: number): boolean {
+	if (shape === "passwordish") return true;
+	if (shape === "hex-digest") return true;
+	if (shape === "mixed-alnum") {
+		return /[A-Za-z]/.test(value) && value !== value.toUpperCase();
+	}
+	if (shape === "other") {
+		return value.length >= floor && CREDENTIAL_SYMBOL_RE.test(value);
+	}
+	return false;
 }
 
 function isIsoDatetime(value: string): boolean {

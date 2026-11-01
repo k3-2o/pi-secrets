@@ -47,7 +47,6 @@ describe("valueRedactionVerdict", () => {
 		expect(valueRedactionVerdict("TOKEN", "2026-04-10T14:22:31Z")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "1776332221")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "1.2.3")).toBe("keep");
-		expect(valueRedactionVerdict("TOKEN", "550e8400-e29b-41d4-a716-446655440000")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "deadbeefdeadbeefdeadbeefdeadbeef")).toBe("mask");
 		expect(valueRedactionVerdict("TOKEN", "/home/pi/projects/x")).toBe("keep");
 		expect(valueRedactionVerdict("TOKEN", "abracadabra-hokus-pocus")).toBe("keep");
@@ -61,7 +60,17 @@ describe("valueRedactionVerdict", () => {
 		expect(valueRedactionVerdict("TOKEN", "ghp_abcDEFghiJKLmnoPQRstuVWXyz0123456789")).toBe("mask");
 		expect(valueRedactionVerdict("TOKEN", "sk-test-abcdefghijk222233334444")).toBe("mask");
 		expect(valueRedactionVerdict("TOKEN", "aZ9xQ2mN4vB8cL1")).toBe("mask");
+		expect(valueRedactionVerdict("TOKEN", "550e8400-e29b-41d4-a716-446655440000")).toBe("mask");
 		expect(valueRedactionVerdict("PASSWORD", "Tr0ub4dor&3")).toBe("mask");
+	});
+
+	test("UUIDs under identifier names stay raw", () => {
+		const uuid = "550e8400-e29b-41d4-a716-446655440000";
+		expect(valueRedactionVerdict("KEY_ID", uuid)).toBe("keep");
+		expect(valueRedactionVerdict("TOKEN_ID", uuid)).toBe("keep");
+		expect(valueRedactionVerdict("AUTH_REQUEST_ID", uuid)).toBe("keep");
+		expect(valueRedactionVerdict("OAUTH_CLIENT_ID", uuid)).toBe("keep");
+		expect(valueRedactionVerdict("PRIVATE_KEY_ID", uuid)).toBe("keep");
 	});
 
 	test("password-named fields override the floor for ambiguous shapes", () => {
@@ -78,17 +87,49 @@ describe("valueRedactionVerdict", () => {
 	});
 });
 
-describe("integration with the at-rest pipeline", () => {
-	test("time-, path- and word-shaped values under secret names stay raw", () => {
-		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
-		expect(hashShapes(o, "TOKEN=2026-04-10T14:22:31Z")).toBe("TOKEN=2026-04-10T14:22:31Z");
-		expect(hashShapes(o, "TOKEN=1776332221")).toBe("TOKEN=1776332221");
-		expect(hashShapes(o, "KEY=abcdefgh")).toBe("KEY=abcdefgh");
-		expect(hashShapes(o, "TOKEN_COUNT=12345678")).toBe("TOKEN_COUNT=12345678");
-		expect(hashShapes(o, "TOKEN=/home/pi/projects/x")).toBe("TOKEN=/home/pi/projects/x");
-		expect(hashShapes(o, "TOKEN=abracadabra-hokus-pocus")).toBe("TOKEN=abracadabra-hokus-pocus");
-	});
+describe("key-shaped gate - non-key-shaped values keep under secret names", () => {
+	const keeps: Array<[string, string]> = [
+		["TOKEN", "<your-token>"],
+		["TOKEN", "{apiKey}"],
+		["TOKEN", "Hello World"],
+		["TOKEN", "GitHub Actions"],
+		["TOKEN", "README.md"],
+		["TOKEN", "v1.2.3-betax"],
+		["TOKEN", "v2026.5.0"],
+		["TOKEN", "2026-4-1"],
+		["TOKEN", "ABCD-EFGH-IJKL-MNOP"],
+		["TOKEN", "value.with.dots.1234"],
+		["TOKEN", "q1.w2.e3.r4.t5.y6"],
+		["TOKEN", "<angle/bracket>"],
+	];
+	for (const [name, value] of keeps) {
+		test(`${name}=${JSON.stringify(value)} stays raw`, () => {
+			expect(valueRedactionVerdict(name, value)).toBe("keep");
+		});
+	}
+});
 
+describe("key-shaped gate - key-shaped values still mask under secret names", () => {
+	const masks: Array<[string, string]> = [
+		["DEPLOY_API_TOKEN", "Zz9real-Captured-Secret42"],
+		["API_KEY", "q7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG"],
+		["PASSWORD", "Tr0ub4dor&3"],
+		["TOKEN", "aBcDeFgH"],
+		["TOKEN", "p@ssw0rd"],
+		["API_KEY", "3x&9#d2q7z1v4"],
+		["SERPER_API_KEY", "deadbeefdeadbeefdeadbeefdeadbeef"],
+		["PASSWORD", "hunter2"],
+		["PASSWORD", "abc"],
+		["PASSWORD", "x"],
+	];
+	for (const [name, value] of masks) {
+		test(`${name}=${JSON.stringify(value)} masks`, () => {
+			expect(valueRedactionVerdict(name, value)).toBe("mask");
+		});
+	}
+});
+
+describe("integration with the at-rest pipeline", () => {
 	test("vendor keys and password-like values still hash as spans", () => {
 		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
 		expect(hashShapes(o, "TOKEN=ghp_abcDEFghiJKLmnoPQRstuVWXyz0123456789")).not.toContain(
@@ -114,7 +155,7 @@ describe("integration with the at-rest pipeline", () => {
 		expect(o.isKnown("q7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG")).toBe(true);
 	});
 
-	test("bare hex values under credential names are hashed; hyphenated UUIDs stay raw", () => {
+	test("bare hex and credential UUID values are hashed; identifier UUIDs stay raw", () => {
 		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
 		const short = "deadbeefdeadbeefdeadbeefdeadbeef";
 		const long = "abababababababababababababababababababab";
@@ -123,7 +164,10 @@ describe("integration with the at-rest pipeline", () => {
 		expect(o.isKnown(short)).toBe(true);
 		expect(o.isKnown(long)).toBe(true);
 		const uuid = "550e8400-e29b-41d4-a716-446655440000";
-		expect(scrubString(o, `TOKEN=${uuid}`)).toBe(`TOKEN=${uuid}`);
-		expect(o.isKnown(uuid)).toBe(false);
+		expect(scrubString(o, `API_KEY=${uuid}`)).not.toBe(`API_KEY=${uuid}`);
+		expect(o.isKnown(uuid)).toBe(true);
+		const idOnly = new SecretObfuscator([], "value-gate-test-key-0123456789");
+		expect(scrubString(idOnly, `KEY_ID=${uuid}`)).toBe(`KEY_ID=${uuid}`);
+		expect(idOnly.isKnown(uuid)).toBe(false);
 	});
 });

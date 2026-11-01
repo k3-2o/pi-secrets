@@ -22,12 +22,18 @@
   plans against placeholders (`edit old="$$HASH$$"` matches the file).
 - **Learn-on-first-sight.** A `KEY=value` line or URL password that is not registered yet
   is captured the first time it appears and hashed like any registered secret, unless the
-  value is deterministically a non-secret (dates, paths, UUIDs, hex, wordlists, digits),
-  which is left as-is. No `secrets.yml` entry needed.
-- **Span hashes for shape hits.** Credential-shaped spans the capture floor cannot take,
-  such as password-named values under 8 chars and short URL passwords, become reversible,
-  span-local `$$HASH$$` placeholders. The value is replaced only at the detected span and
-  never enters the global registry.
+  value is deterministically a non-secret (dates, paths, wordlists, digits), which is left
+  as-is. No `secrets.yml` entry needed.
+- **Key-shaped gate, vendor fallback.** A credential-named assignment is redacted only
+  when its value looks like a key: vendor prefixes (`sk-…`, `ghp_…`, `AKIA…`), password-like
+  strings, UUIDs (unless the name ends in `_ID`), 24+ hex runs, mixed-case alphanumeric
+  values, or values with credential characters (`& ! ? ~ % ^ * + # = @`). Templates,
+  display strings, filenames, versions,
+  dates, and serials stay raw. Vendor shapes are the fallback and hash anywhere, with or
+  without a `NAME=`.
+- **Span hashes for shape hits.** Password-named values under 8 chars and short URL
+  passwords become reversible, span-local `$$HASH$$` placeholders, minted only at the
+  detected span and never entered in the global registry.
 - **Hash morphing done right.** `$$NAME_HASH:HINT$$` placeholders are HMAC-keyed per
   install: deterministic (provider prompt-cache stable), unforgeable, and undictionaryable
   without your key file.
@@ -92,15 +98,19 @@ credential *shapes* are hash-routed: edits around known secrets stay lossless.
 
 **Unregistered values** are captured or raw, never silently reusable. When tool output
 contains a credential-*named* assignment (`API_KEY=…`) or a connection-URL password,
-pi-secrets **auto-captures** the value on first sight unless its shape marks it a
-non-secret (dates, paths, hex, digit runs), which stays raw. It registers the value
-session-scoped and hashes it, so it becomes editable exactly like a registered value
-(two-way round-trip). A bare value in prose that matches no name gate and no
-built-in shape stays raw. That is the honest boundary. Values under the 8-char floor
-stay raw except where the span net catches a redaction shape: password-named values
-and short URL passwords become reversible, span-local `$$HASH$$`, minted only at the
-detected span and never registered. The model edits around those placeholders like
-registered values, because the tool-call reveal restores them.
+pi-secrets redacts the value on first sight only when it looks like a key: vendor
+prefixes, password-like strings, 24+ hex runs, mixed-case alphanumeric values, or values
+with credential characters. Anything else under a secret name stays raw: prose, display
+strings, filenames, templates, versions, dates, digit runs, and wordlist values. Key-shaped
+values register session-scoped and hash, so they become editable exactly like a registered
+value (two-way round-trip). A bare value in prose that matches no name gate and no
+vendor shape stays raw. That is the honest boundary; all-caps or dotted runs that look
+like neither a key nor a name are best registered in `secrets.yml` or exported as an env
+var. Values under the 8-char floor stay raw except where the span net catches a
+redaction shape: password-named values and short URL passwords become reversible,
+span-local `$$HASH$$`, minted only at the detected span and never registered. The model
+edits around those placeholders like registered values, because the tool-call reveal
+restores them.
 
 Ways the agent can still touch such a file, honestly:
 
@@ -146,7 +156,7 @@ environment variable.
 
 | Net | Hardcoded trigger | What it catches |
 |---|---|---|
-| Auto-capture (learn-on-first-sight) | Credential-*named* assignments (name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASS`, `AUTH`, `CREDENTIAL`, `PRIVATE`, or `OAUTH`) and `scheme://user:password@host` URLs, values of 8+ chars | Assignment/URL values that were never registered and hashed on first sight, session-scoped, reversible; values shaped like non-secrets (dates, paths, wordlists, hex, digits) stay raw |
+| Auto-capture (learn-on-first-sight) | Credential-*named* assignments (name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PASSWD`, `PASS`, `AUTH`, `CREDENTIAL`, `PRIVATE`, or `OAUTH`) and `scheme://user:password@host` URLs | Key-shaped assignment values (vendor prefixes, password-like strings, 24+ hex, mixed-case alnum, credential symbols) are hashed on first sight, session-scoped, reversible; prose-like values, dates, paths, wordlists, digits, and below-floor values stay raw |
 | Built-in shapes | Vendor prefixes (`sk-`, `ghp_`, `glpat-`, `AKIA`, `eyJ`, …) | Bare prefixed tokens, anywhere, no assignment needed |
 | `secrets.yml` | Your entries | Everything the two automatic nets miss |
 

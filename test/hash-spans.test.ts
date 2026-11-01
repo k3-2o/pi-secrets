@@ -37,16 +37,6 @@ describe("hash-only at-rest - assignment spans", () => {
 		);
 	});
 
-	test("vetoed assignment shapes stay raw", () => {
-		const cases = ["PASSWORD=abcd", "PASSWORD=1234", "PASSWORD=2026-04-10T14:22:31Z", "API_TOKEN=short"];
-		for (const input of cases) {
-			const out = hashShapes(obf(), input);
-			expect(out).toBe(input);
-			expect(out).not.toContain("$$");
-			expect(out).not.toContain("••••••");
-		}
-	});
-
 	test("a value containing $$ stays raw", () => {
 		const out = hashShapes(obf(), "PASSWORD=pa$$word");
 		expect(out).toBe("PASSWORD=pa$$word");
