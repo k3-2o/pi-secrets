@@ -334,38 +334,6 @@ export function replaceRange(text: string, start: number, end: number, replaceme
 	return text.slice(0, start) + replacement + text.slice(end);
 }
 
-export function deepWalkStrings<T>(obj: T, transform: (s: string) => string): T {
-	if (typeof obj === "string") {
-		return transform(obj) as unknown as T;
-	}
-	if (Array.isArray(obj)) {
-		let changed = false;
-		const result = obj.map((item) => {
-			const transformed = deepWalkStrings(item, transform);
-			if (transformed !== item) changed = true;
-			return transformed;
-		});
-		return (changed ? result : obj) as unknown as T;
-	}
-	if (obj !== null && typeof obj === "object" && isPlainRecord(obj)) {
-		let changed = false;
-		const result: Record<string, unknown> = {};
-		for (const key of Object.keys(obj)) {
-			const value = (obj as Record<string, unknown>)[key];
-			const transformed = deepWalkStrings(value, transform);
-			if (transformed !== value) changed = true;
-			result[key] = transformed;
-		}
-		return (changed ? result : obj) as T;
-	}
-	return obj;
-}
-
-function isPlainRecord(obj: object): obj is Record<string, unknown> {
-	const prototype = Object.getPrototypeOf(obj);
-	return prototype === Object.prototype || prototype === null;
-}
-
 export function collectJsonRegexSecretValues(obfuscator: SecretObfuscator, value: JsonValue): SecretValueSet {
 	const values = new SecretValueSet();
 	const collect = (item: JsonValue): void => {

@@ -10,29 +10,6 @@ type AssistantContent = Extract<AgentMessage, { role: "assistant" }>["content"];
 type ContentBlocks = Extract<AgentMessage, { role: "toolResult" }>["content"];
 type UserFacingMessage = Extract<AgentMessage, { role: "user" | "toolResult" }>;
 
-export function deobfuscateAssistantContent(obfuscator: SecretObfuscator, content: AssistantContent): AssistantContent {
-	if (!obfuscator.hasSecrets()) return content;
-	const deob = (text: string): string => obfuscator.deobfuscate(text);
-	let changed = false;
-	const result = content.map((block): AssistantContent[number] => {
-		if (block.type === "text") {
-			const text = deob(block.text);
-			if (text === block.text) return block;
-			changed = true;
-			return { ...block, text };
-		}
-
-		if (block.type === "toolCall") {
-			const args = deobfuscateToolArguments(obfuscator, block.arguments);
-			if (args === block.arguments) return block;
-			changed = true;
-			return { ...block, arguments: args as unknown as JsonObject };
-		}
-		return block;
-	});
-	return changed ? result : content;
-}
-
 export function deobfuscateToolArguments(
 	obfuscator: SecretObfuscator,
 	args: Record<string, unknown>,
@@ -179,7 +156,7 @@ function obfuscateMessageBatch(obfuscator: SecretObfuscator, messages: AgentMess
 	return changed ? result : messages;
 }
 
-export interface ProviderContext {
+interface ProviderContext {
 	messages: AgentMessage[];
 }
 

@@ -19,7 +19,6 @@ import {
 import {
 	buildReplaceRegexScan,
 	countOutsidePlaceholderRanges,
-	deepWalkStrings,
 	deobfuscateGeneratedPlaceholderRanges,
 	extendPastAdjacentPlaceholders,
 	firstOutsidePlaceholderRange,
@@ -649,16 +648,6 @@ export class SecretObfuscator {
 			if (next === result || !shouldContinue || !next.includes("$$")) return next;
 			result = next;
 		}
-	}
-
-	deobfuscateObject<T>(obj: T): T {
-		if (!this.#hasAny) return obj;
-		return deepWalkStrings(obj, (s) => this.deobfuscate(s));
-	}
-
-	obfuscateObject<T>(obj: T): T {
-		if (!this.#hasAny) return obj;
-		return deepWalkStrings(obj, (s) => this.obfuscate(s));
 	}
 
 	#generateReplacement(chunk: string): string {

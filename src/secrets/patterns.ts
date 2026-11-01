@@ -1,6 +1,6 @@
 import { SENSITIVE_TOKEN_RE } from "./regex";
 
-export interface CredentialPattern {
+interface CredentialPattern {
 	name: string;
 	source: string;
 	flags?: string;

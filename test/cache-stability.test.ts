@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import {
-	deobfuscateAssistantContent,
-	deobfuscateToolArguments,
-	obfuscateProviderContext,
-} from "../src/secrets/message-transform";
+import { deobfuscateToolArguments, obfuscateProviderContext } from "../src/secrets/message-transform";
 import type { SecretObfuscator } from "../src/secrets/obfuscator";
 import { SecretObfuscator as Obf } from "../src/secrets/obfuscator";
 
@@ -57,7 +53,10 @@ describe("cache stability", () => {
 			role: "assistant",
 			content: [{ type: "text", text: `use the token ${placeholder}` }],
 		} as unknown as AgentMessage;
-		const revealed = deobfuscateAssistantContent(o, assistant.content);
+		const revealed = (assistant.content as Array<{ type: string; text: string }>).map((b) => ({
+			...b,
+			text: o.deobfuscate(b.text),
+		}));
 		expect((revealed[0] as { text: string }).text).toContain(SECRET);
 
 		const turn2 = [

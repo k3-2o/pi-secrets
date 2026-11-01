@@ -4,7 +4,7 @@ const STREAM_PEM_MAX = 32 * 1024;
 const STREAM_LINE_CAP = 64 * 1024;
 const STREAM_HOLD = 1024;
 
-export interface StreamScrubber {
+interface StreamScrubber {
 	write(data: Buffer): void;
 
 	flush(): void;

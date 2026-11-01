@@ -222,14 +222,14 @@ export function scrubJsonValue(obfuscator: SecretObfuscator, value: JsonValue | 
 	return mapJsonStrings(value, (s) => scrubString(obfuscator, s));
 }
 
-export interface ToolResultScrubInput {
+interface ToolResultScrubInput {
 	content: readonly Readonly<Record<string, unknown>>[];
 	structuredContent?: JsonValue;
 	details?: unknown;
 	nestedCalls?: { calls: Array<{ arguments?: unknown }>; complete: boolean };
 }
 
-export interface ToolResultScrubOutput {
+interface ToolResultScrubOutput {
 	content: readonly Readonly<Record<string, unknown>>[];
 	structuredContent?: JsonValue;
 	details?: unknown;
