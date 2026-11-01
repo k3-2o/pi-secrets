@@ -1,7 +1,7 @@
 import { foldDumpViews } from "./dump-views";
 import type { JsonValue, SecretObfuscator } from "./obfuscator";
 import { mapJsonStrings } from "./placeholder-scan";
-import { valueRedactionVerdict, valueVetoesRedaction } from "./value-gate";
+import { isCredentialLikePassword, valueRedactionVerdict, valueVetoesRedaction } from "./value-gate";
 
 const BULLET_CHAR = "•";
 
@@ -185,7 +185,7 @@ export function captureUnregistered(
 	CONNECTION_URL_RE.lastIndex = 0;
 	let urlMatch: RegExpExecArray | null;
 	while ((urlMatch = CONNECTION_URL_RE.exec(text)) !== null) {
-		tryCapture(urlMatch[1]);
+		if (isCredentialLikePassword(urlMatch[1])) tryCapture(urlMatch[1]);
 	}
 	return text;
 }

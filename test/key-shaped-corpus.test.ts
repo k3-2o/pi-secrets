@@ -95,6 +95,32 @@ describe("key-shaped gate corpus - documented residuals still redact", () => {
 	});
 });
 
+describe("key-shaped gate corpus - url-password global capture gate", () => {
+	test("doc-default URL password is redacted locally but never registered", () => {
+		const o = obf();
+		const line = "postgres://app:password123@host.example/db";
+		expect(scrubString(o, line)).not.toBe(line);
+		expect(o.isKnown("password123")).toBe(false);
+		expect(o.autoCaptureReport().count).toBe(0);
+		expect(scrubString(o, "password123 is a common default")).toBe("password123 is a common default");
+	});
+
+	test("credential-looking URL passwords still register globally", () => {
+		for (const pw of ["passw0rd!2024x", "u8r9PgQwXzA4vB2cD6fH1jK3lM5nO7pQ"]) {
+			const o = obf();
+			const line = `postgres://app:${pw}@host.example/db`;
+			expect(scrubString(o, line)).not.toBe(line);
+			expect(o.isKnown(pw)).toBe(true);
+		}
+	});
+
+	test("short doc passwords keep line-local redaction only", () => {
+		const o = obf();
+		expect(scrubString(o, "mysql://root:root@localhost/db")).not.toBe("mysql://root:root@localhost/db");
+		expect(o.isKnown("root")).toBe(false);
+	});
+});
+
 describe("key-shaped gate corpus - vendor fallback (tier 2, no name gate)", () => {
 	test("vendor shape redacts under a non-secret name", () => {
 		expect(scrubString(obf(), `count=${SK}`)).not.toContain("sk-proj-");

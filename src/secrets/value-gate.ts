@@ -126,6 +126,12 @@ function isKeyShapedValue(shape: ValueShape, value: string, floor: number): bool
 	return false;
 }
 
+export function isCredentialLikePassword(value: string): boolean {
+	if (value.length < MIN_OBFUSCATE_SECRET_LEN) return false;
+	if (/[A-Z]/.test(value) && /[a-z]/.test(value)) return true;
+	return CREDENTIAL_SYMBOL_RE.test(value);
+}
+
 function isIsoDatetime(value: string): boolean {
 	return (
 		/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(value) ||
