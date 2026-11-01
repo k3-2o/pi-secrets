@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { redactShapes, scrubJsonValue, scrubString, scrubToolResult } from "../src/secrets/at-rest";
+import { hashShapes, scrubJsonValue, scrubString, scrubToolResult } from "../src/secrets/at-rest";
 import { buildSecretObfuscator } from "../src/secrets/loaders";
 import { SecretObfuscator } from "../src/secrets/obfuscator";
 import { readSecretsSettings } from "../src/settings";
@@ -33,49 +33,62 @@ afterEach(() => {
 	delete process.env.PI_CODING_AGENT_DIR;
 });
 
-describe("at-rest - shape redaction (unknown-shaped spans → bullets)", () => {
-	test("assignment with a credential name is bulleted", () => {
-		expect(redactShapes('API_KEY="plain-visible-secret-1234"')).toBe('API_KEY="••••••"');
-		expect(redactShapes("TOKEN=plain-visible-secret-1234")).toBe("TOKEN=••••••");
-		expect(redactShapes("export PASSWORD='hunter2hunter'")).toBe("export PASSWORD='••••••'");
+describe("at-rest - shape redaction (detected spans → placeholders)", () => {
+	test("assignment with a credential name becomes a placeholder", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		expect(hashShapes(o, 'API_KEY="plain-visible-secret-1234"')).toMatch(
+			/API_KEY="\$\$APIKEY_[A-Z0-9]{12}:[ULCM]\$\$"/,
+		);
+		expect(hashShapes(o, "TOKEN=plain-visible-secret-1234")).toMatch(/TOKEN=\$\$TOKEN_[A-Z0-9]{12}:[ULCM]\$\$/);
+		expect(hashShapes(o, "export PASSWORD='hunter2hunter'")).toMatch(
+			/export PASSWORD='\$\$PASSWORD_[A-Z0-9]{12}:[ULCM]\$\$'/,
+		);
 	});
 
-	test("connection-URL password is bulleted", () => {
-		expect(redactShapes("curl https://user:••••••@example.com/x")).toBe("curl https://user:••••••@example.com/x");
+	test("connection-URL password becomes a placeholder", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		expect(hashShapes(o, "curl https://user:hunter2hunter@example.com/x")).toMatch(
+			/curl https:\/\/user:\$\$[A-Z0-9]{12}:[ULCM]\$\$@example\.com\/x/,
+		);
 	});
 
-	test("URL passwords containing @ are bulleted whole, not truncated at the first @", () => {
+	test("URL passwords containing @ are masked whole, not truncated at the first @", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
 		const when = "postgres://app:pa" + "ssw0rd!2024x@host.example:5432/db";
-		expect(redactShapes(when)).toBe("postgres://app:••••••@host.example:5432/db");
+		expect(hashShapes(o, when)).toMatch(/postgres:\/\/app:\$\$[A-Z0-9]{12}:[ULCM]\$\$@host\.example:5432\/db/);
 	});
 
 	test("non-secret assignments and already-hashed spans survive untouched", () => {
-		expect(redactShapes("NAME=folder MAKEFILE=yes CWD=/tmp")).toBe("NAME=folder MAKEFILE=yes CWD=/tmp");
-		expect(redactShapes('KEY="$$WIRING_0UX60MSBVKK4:L$$"')).toBe('KEY="$$WIRING_0UX60MSBVKK4:L$$"');
-		expect(redactShapes("no secrets at all")).toBe("no secrets at all");
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		expect(hashShapes(o, "NAME=folder MAKEFILE=yes CWD=/tmp")).toBe("NAME=folder MAKEFILE=yes CWD=/tmp");
+		expect(hashShapes(o, 'KEY="$$WIRING_0UX60MSBVKK4:L$$"')).toBe('KEY="$$WIRING_0UX60MSBVKK4:L$$"');
+		expect(hashShapes(o, "no secrets at all")).toBe("no secrets at all");
 	});
 
 	test("keyword ending a word does not gate: monkey, bypass, whiskey stay raw", () => {
-		expect(redactShapes("monkey=e347a175cc0a6526c29654610a3a2add56e1aec4")).toBe(
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		expect(hashShapes(o, "monkey=e347a175cc0a6526c29654610a3a2add56e1aec4")).toBe(
 			"monkey=e347a175cc0a6526c29654610a3a2add56e1aec4",
 		);
-		expect(redactShapes("bypass=on")).toBe("bypass=on");
-		expect(redactShapes("whiskey=bottle")).toBe("whiskey=bottle");
-		expect(redactShapes("TURKEY_KEY=slim")).toBe("TURKEY_KEY=slim");
+		expect(hashShapes(o, "bypass=on")).toBe("bypass=on");
+		expect(hashShapes(o, "whiskey=bottle")).toBe("whiskey=bottle");
+		expect(hashShapes(o, "TURKEY_KEY=slim")).toBe("TURKEY_KEY=slim");
 	});
 
 	test("camelCase and underscore-prefixed secret names still gate", () => {
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
 		const value = "q7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG";
-		expect(redactShapes(`apiKey=${value}`)).not.toBe(`apiKey=${value}`);
-		expect(redactShapes(`userKey=${value}`)).not.toBe(`userKey=${value}`);
-		expect(redactShapes(`_pass=${value}`)).not.toBe(`_pass=${value}`);
-		expect(redactShapes(`SERPER_API_KEY=${value}`)).not.toBe(`SERPER_API_KEY=${value}`);
+		expect(hashShapes(o, `apiKey=${value}`)).not.toBe(`apiKey=${value}`);
+		expect(hashShapes(o, `userKey=${value}`)).not.toBe(`userKey=${value}`);
+		expect(hashShapes(o, `_pass=${value}`)).not.toBe(`_pass=${value}`);
+		expect(hashShapes(o, `SERPER_API_KEY=${value}`)).not.toBe(`SERPER_API_KEY=${value}`);
 	});
 
 	test("below-floor values stay raw even behind a gated name (key=lambda kwargs)", () => {
-		expect(redactShapes("results.sort(key=lambda r: r.size)")).toBe("results.sort(key=lambda r: r.size)");
-		expect(redactShapes("token_count = 42")).toBe("token_count = 42");
-		expect(redactShapes("AUTH_TYPE=none")).toBe("AUTH_TYPE=none");
+		const o = new SecretObfuscator([], "unit-test-key-0123456789abcdef");
+		expect(hashShapes(o, "results.sort(key=lambda r: r.size)")).toBe("results.sort(key=lambda r: r.size)");
+		expect(hashShapes(o, "token_count = 42")).toBe("token_count = 42");
+		expect(hashShapes(o, "AUTH_TYPE=none")).toBe("AUTH_TYPE=none");
 	});
 });
 

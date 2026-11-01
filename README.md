@@ -24,8 +24,10 @@
   is captured the first time it appears and hashed like any registered secret, unless the
   value is deterministically a non-secret (dates, paths, UUIDs, hex, wordlists, digits),
   which is left as-is. No `secrets.yml` entry needed.
-- **One-way bullets match capture.** Credential-named assignment values under the 8-char
-  capture floor stay raw entirely; bullets and capture share one length gate.
+- **Span hashes for shape hits.** Credential-shaped spans the capture floor cannot take,
+  such as password-named values under 8 chars and short URL passwords, become reversible,
+  span-local `$$HASH$$` placeholders. The value is replaced only at the detected span and
+  never enters the global registry.
 - **Hash morphing done right.** `$$NAME_HASH:HINT$$` placeholders are HMAC-keyed per
   install: deterministic (provider prompt-cache stable), unforgeable, and undictionaryable
   without your key file.
@@ -70,7 +72,7 @@
 | User text (typed/pasted) | `$$HASH$$` | real (paint reveal) | `$$HASH$$` |
 | Assistant text | `$$HASH$$` | real (paint reveal) | `$$HASH$$` |
 | Tool call arguments | `$$HASH$$` (the model's own args) | (none) | `$$HASH$$` |
-| Tool output | `$$HASH$$` / `••••••` (scrubbed) | `$$HASH$$` | `$$HASH$$` |
+| Tool output | `$$HASH$$` (scrubbed) | `$$HASH$$` | `$$HASH$$` |
 | `!`-command output | `$$HASH$$` (scrubbed) | real until recorded, then hashed | `$$HASH$$` |
 
 **Tool-output blocks show `$$…$$` even on your screen:** pi draws them with the same
@@ -95,20 +97,19 @@ non-secret (dates, paths, hex, digit runs), which stays raw. It registers the va
 session-scoped and hashes it, so it becomes editable exactly like a registered value
 (two-way round-trip). A bare value in prose that matches no name gate and no
 built-in shape stays raw. That is the honest boundary. Values under the 8-char floor
-stay raw everywhere (capture and the bullet net share one length gate); one-way
-bullets never apply to assignments.
+stay raw except where the span net catches a redaction shape: password-named values
+and short URL passwords become reversible, span-local `$$HASH$$`, minted only at the
+detected span and never registered. The model edits around those placeholders like
+registered values, because the tool-call reveal restores them.
 
 Ways the agent can still touch such a file, honestly:
 
 - **Register the value** with a `secrets.yml` entry, or export it as a
-  credential-named env var: the `••••••` becomes `$$HASH$$` and normal edits
-  round-trip again.
+  credential-named env var: normal edits round-trip against the `$$HASH$$`.
 - **Whole-line rewrites from the shell**, which never need the old value:
   `sed -i 's/^API_KEY=.*/API_KEY=newvalue/' file`.
 - **Side note:** a hashline-based edit tool (replaces by line number from a recent read)
-  can rewrite a line without knowing its old content. Still, for a bulleted value the
-  agent has nothing real to write, so it only helps registered values or
-  human-supplied replacements.
+  can rewrite a line without knowing its old content.
 
 ## Usage
 

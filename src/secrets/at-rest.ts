@@ -3,7 +3,11 @@ import type { JsonValue, SecretObfuscator } from "./obfuscator";
 import { mapJsonStrings } from "./placeholder-scan";
 import { valueRedactionVerdict, valueVetoesRedaction } from "./value-gate";
 
-const BULLET = "••••••";
+const BULLET_CHAR = "•";
+
+function isLegacyRedacted(value: string): boolean {
+	return value.includes(BULLET_CHAR);
+}
 
 const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|PASSWORD|PASSWD|PASS|AUTH|CREDENTIAL|PRIVATE|OAUTH)(_|$)/i;
 
@@ -101,7 +105,7 @@ function assignmentCandidates(text: string): AssignmentCandidate[] {
 			if (accepted === undefined) continue;
 			value = accepted;
 		}
-		if (value.includes("$$")) continue;
+		if (value.includes("$$") || isLegacyRedacted(value)) continue;
 
 		const valueStart = ASSIGNMENT_NAME_RE.lastIndex + valueMatch.index + valueMatch[0].lastIndexOf(raw);
 		out.push({ name: match[1], value, valueStart, valueEnd: valueStart + value.length, quoted });
@@ -109,47 +113,50 @@ function assignmentCandidates(text: string): AssignmentCandidate[] {
 	return out;
 }
 
-export function redactShapes(text: string): string {
+interface ShapeSpan {
+	start: number;
+	end: number;
+	value: string;
+	name: string | undefined;
+}
+
+export function hashShapes(obfuscator: SecretObfuscator, text: string): string {
 	if (text.length === 0) return text;
-	const spans: Array<[number, number]> = [];
+	const spans: ShapeSpan[] = [];
 
 	for (const c of assignmentCandidates(text)) {
 		if (valueRedactionVerdict(c.name, c.value) === "keep") continue;
-		spans.push([c.valueStart, c.valueEnd]);
+		spans.push({ start: c.valueStart, end: c.valueEnd, value: c.value, name: c.name });
 	}
 
 	CONNECTION_URL_RE.lastIndex = 0;
 	let urlMatch: RegExpExecArray | null;
 	while ((urlMatch = CONNECTION_URL_RE.exec(text)) !== null) {
 		const password = urlMatch[1];
-		if (password.includes("$$")) continue;
+		if (password.includes("$$") || isLegacyRedacted(password)) continue;
 		const start = urlMatch.index + urlMatch[0].lastIndexOf(password);
-		spans.push([start, start + password.length]);
+		spans.push({ start, end: start + password.length, value: password, name: undefined });
 	}
 
 	if (spans.length === 0) return text;
-	return replaceSpans(text, spans);
-}
 
-function replaceSpans(text: string, spans: Array<[number, number]>): string {
-	const sorted = spans.sort((a, b) => a[0] - b[0]);
-	const merged: Array<[number, number]> = [];
-	for (const [start, end] of sorted) {
+	const sorted = spans.sort((a, b) => a.start - b.start);
+	const merged: ShapeSpan[] = [];
+	for (const span of sorted) {
 		const last = merged[merged.length - 1];
-		if (last !== undefined && start <= last[1]) {
-			last[1] = Math.max(last[1], end);
+		if (last !== undefined && span.start <= last.end) {
+			last.end = Math.max(last.end, span.end);
 		} else {
-			merged.push([start, end]);
+			merged.push(span);
 		}
 	}
-	let out = "";
-	let cursor = 0;
-	for (const [start, end] of merged) {
-		out += text.slice(cursor, start);
-		out += BULLET;
-		cursor = end;
+
+	for (let i = merged.length - 1; i >= 0; i--) {
+		const span = merged[i]!;
+		const placeholder = obfuscator.placeholderForSpan(span.value, span.name);
+		text = text.slice(0, span.start) + placeholder + text.slice(span.end);
 	}
-	return out + text.slice(cursor);
+	return text;
 }
 
 export function captureUnregistered(
@@ -162,6 +169,7 @@ export function captureUnregistered(
 	const seen = new Set<string>();
 	const tryCapture = (value: string, friendlyName?: string): void => {
 		if (value.includes("$$")) return;
+		if (isLegacyRedacted(value)) return;
 		if (!options.skipValueVeto && valueVetoesRedaction(value)) return;
 		if (obfuscator.isKnown(value)) return;
 		if (seen.has(value)) return;
@@ -186,7 +194,7 @@ export function scrubString(obfuscator: SecretObfuscator, text: string): string 
 	const out = foldDumpViews(obfuscator, text);
 	captureUnregistered(obfuscator, out);
 	const hashed = obfuscator.obfuscate(out);
-	return redactShapes(hashed);
+	return hashShapes(obfuscator, hashed);
 }
 
 type ScrubBlock = { type: "text"; text: string };

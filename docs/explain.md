@@ -16,8 +16,9 @@ pi-secrets stops both at the source:
   message class the extension can reach.
 
 What the model receives, and what the file stores, is a keyed placeholder
-(`$$NAME_HASH:HINT$$`). One-way bullets remain for credential-shaped spans the capture
-floor does not take, such as connection-URL passwords.
+(`$$NAME_HASH:HINT$$`). Credential-shaped spans the capture floor does not take, such as
+short password-named values and URL passwords, become reversible, span-local hashes
+instead of a one-way fallback.
 This is a reduction of exposure, not a sandbox. The model still executes tools with
 user permissions. If it deliberately writes a credential to disk or to a
 network endpoint, it can only do so with the placeholder it saw, not the real value.
@@ -48,8 +49,8 @@ placeholder, and the tool receives the real value.
   folded, but arbitrary byte transforms (rot13, xor, python one-liners, gzip) are out
   of scope.
 - **Tool-output blocks show hashes.** pi draws tool blocks through
-  renderers shared with HTML exports, so tool blocks are hashed (or bulleted)
-  everywhere. User and assistant text still reveal.
+  renderers shared with HTML exports, so tool blocks are hashed everywhere.
+  User and assistant text still reveal.
 - **Operator-authored command lines.** `!echo $MYKEY` or `!curl -H "x: <key>" …`
   record the command exactly as typed (the `user_bash` seam cannot rewrite it). The
   output of such commands is scrubbed; the literal command line you typed is your own
@@ -119,7 +120,8 @@ gone for everyone, including an attacker who stole the old key.
 The feature is off by default (`secrets.enabled: false`). Turn it on, run the quick
 start from the README with a fake key, and observe the transcript before trusting it
 with real keys. The test suite (`just check`) asserts the security properties:
-fixed-point, determinism, forgery resistance, one-way replace mode, and the at-rest map (every message class stores hashes;
+fixed-point, determinism, forgery resistance, one-way replace mode, span-local hashing,
+and the at-rest map (every message class stores hashes;
 the transformer reveals user + assistant only) and runs in hermetic temp directories; it never touches real
 credentials or the real key file.
 

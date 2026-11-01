@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { redactShapes, scrubString } from "../src/secrets/at-rest";
+import { hashShapes, scrubString } from "../src/secrets/at-rest";
 import { SecretObfuscator } from "../src/secrets/obfuscator";
 import { classifyValueShape, type ValueShape, valueRedactionVerdict } from "../src/secrets/value-gate";
 
@@ -80,19 +80,23 @@ describe("valueRedactionVerdict", () => {
 
 describe("integration with the at-rest pipeline", () => {
 	test("time-, path- and word-shaped values under secret names stay raw", () => {
-		expect(redactShapes("TOKEN=2026-04-10T14:22:31Z")).toBe("TOKEN=2026-04-10T14:22:31Z");
-		expect(redactShapes("TOKEN=1776332221")).toBe("TOKEN=1776332221");
-		expect(redactShapes("KEY=abcdefgh")).toBe("KEY=abcdefgh");
-		expect(redactShapes("TOKEN_COUNT=12345678")).toBe("TOKEN_COUNT=12345678");
-		expect(redactShapes("TOKEN=/home/pi/projects/x")).toBe("TOKEN=/home/pi/projects/x");
-		expect(redactShapes("TOKEN=abracadabra-hokus-pocus")).toBe("TOKEN=abracadabra-hokus-pocus");
+		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
+		expect(hashShapes(o, "TOKEN=2026-04-10T14:22:31Z")).toBe("TOKEN=2026-04-10T14:22:31Z");
+		expect(hashShapes(o, "TOKEN=1776332221")).toBe("TOKEN=1776332221");
+		expect(hashShapes(o, "KEY=abcdefgh")).toBe("KEY=abcdefgh");
+		expect(hashShapes(o, "TOKEN_COUNT=12345678")).toBe("TOKEN_COUNT=12345678");
+		expect(hashShapes(o, "TOKEN=/home/pi/projects/x")).toBe("TOKEN=/home/pi/projects/x");
+		expect(hashShapes(o, "TOKEN=abracadabra-hokus-pocus")).toBe("TOKEN=abracadabra-hokus-pocus");
 	});
 
-	test("vendor keys and password-like values still bullet", () => {
-		expect(redactShapes("TOKEN=ghp_abcDEFghiJKLmnoPQRstuVWXyz0123456789")).toBe("TOKEN=••••••");
-		expect(redactShapes("PASSWORD=hunter2")).toBe("PASSWORD=••••••");
-		expect(redactShapes("PASSWORD=Tr0ub4dor&3")).toBe("PASSWORD=••••••");
-		expect(redactShapes("TOKEN=aZ9xQ2mN4vB8cL1")).toBe("TOKEN=••••••");
+	test("vendor keys and password-like values still hash as spans", () => {
+		const o = new SecretObfuscator([], "value-gate-test-key-0123456789");
+		expect(hashShapes(o, "TOKEN=ghp_abcDEFghiJKLmnoPQRstuVWXyz0123456789")).not.toContain(
+			"ghp_abcDEFghiJKLmnoPQRstuVWXyz0123456789",
+		);
+		expect(hashShapes(o, "PASSWORD=hunter2")).not.toContain("hunter2");
+		expect(hashShapes(o, "PASSWORD=Tr0ub4dor&3")).not.toContain("Tr0ub4dor&3");
+		expect(hashShapes(o, "TOKEN=aZ9xQ2mN4vB8cL1")).not.toContain("aZ9xQ2mN4vB8cL1");
 	});
 
 	test("vetoed values are never captured, so later forms stay raw", () => {

@@ -24,7 +24,7 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.isKnown(RAW)).toBe(true);
 	});
 
-	test("captured value reveals (two-way, not bullets)", () => {
+	test("captured value reveals (two-way, placeholder output)", () => {
 		const o = obf();
 		const out = scrubString(o, `API_KEY=${RAW}`);
 		expect(out).not.toContain("••");
@@ -116,7 +116,7 @@ describe("phase 9 - auto-capture (learn on first sight)", () => {
 		expect(o.hasSecrets()).toBe(false);
 	});
 
-	test("short values under the floor are never captured and stay raw (same floor as bullets)", () => {
+	test("short values under the floor are never captured and stay raw (same floor as hashes)", () => {
 		const o = obf();
 		const out = scrubString(o, "API_KEY=short");
 		expect(o.isKnown("short")).toBe(false);

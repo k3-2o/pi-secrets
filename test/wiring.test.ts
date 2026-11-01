@@ -322,6 +322,35 @@ describe("pi-secrets wiring - single mode (Phase 8)", () => {
 	});
 });
 
+describe("hash-only at-rest - prompt note", () => {
+	test("active obfuscator note names only the hash form", async () => {
+		const fake = makeFakePi(true);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const result = (await fake.run("before_agent_start", {
+			type: "before_agent_start",
+			systemPrompt: "base prompt",
+		})) as { systemPrompt: string };
+		expect(result.systemPrompt).toContain(
+			"Obfuscation is active, secrets appear as $$HASH$$ references, resolved at use.",
+		);
+		expect(result.systemPrompt).not.toContain("••");
+	});
+
+	test("inactive obfuscator adds no note", async () => {
+		const fake = makeFakePi(false);
+		extensionFactory(fake.pi);
+		await fake.run("session_start", { type: "session_start", reason: "startup" }, { cwd });
+
+		const result = await fake.run("before_agent_start", {
+			type: "before_agent_start",
+			systemPrompt: "base prompt",
+		});
+		expect(result).toBeUndefined();
+	});
+});
+
 describe("phase 11 - /secrets diagnostics command", () => {
 	test("command reports auto-captured labels and count, never values; silent when nothing learned", async () => {
 		const fake = makeFakePi(true);

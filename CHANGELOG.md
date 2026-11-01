@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- At-rest redaction is hash-only: credential-shaped spans the 8-char capture floor does not take (short password-named values, URL passwords) become reversible, span-local `$$HASH$$` placeholders instead of a one-way fallback.
+- Legacy redacted text already present in old transcripts passes through untouched; the active-obfuscator prompt note names only the `$$…$$` placeholder form.
+
 ## 0.4.1 — 2026-11-01
 
 - Quoted credential values containing spaces, like `KEY="a b c"`, are captured and masked instead of passing through raw.

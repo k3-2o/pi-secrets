@@ -102,7 +102,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => {
 		if (!state.obfuscator?.hasSecrets()) return undefined;
 		return {
-			systemPrompt: `${event.systemPrompt}\n\nA secret obfuscator is active in this session; secrets may appear in tool output or user input as $$LIKE_THIS$$ or •••••• placeholders.`,
+			systemPrompt: `${event.systemPrompt}\n\nObfuscation is active, secrets appear as $$HASH$$ references, resolved at use.`,
 		};
 	});
 

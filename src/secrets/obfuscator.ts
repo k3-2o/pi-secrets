@@ -330,6 +330,12 @@ export class SecretObfuscator {
 		return this.#configuredSecretValues.has(value) || this.#mintedSecretValues.has(value);
 	}
 
+	placeholderForSpan(value: string, friendlyName?: string): string {
+		const placeholder = this.#createPlaceholder(value, friendlyName);
+		this.#hasAny = true;
+		return placeholder;
+	}
+
 	addPlainSecret(value: string, friendlyName?: string): boolean {
 		if (value.length < MIN_OBFUSCATE_SECRET_LEN) return false;
 		if (this.#configuredSecretValues.has(value) || this.#mintedSecretValues.has(value)) return false;
