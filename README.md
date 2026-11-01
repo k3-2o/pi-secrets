@@ -133,8 +133,9 @@ Credential shapes are matched automatically, in four groups:
 - **More:** Slack (`xox*`), JWTs (`eyJ…`), `Bearer …` tokens, PEM private-key blocks, Shopify (`shpat_`/`shpca_`/`shppa_`), Postman (`PMAK-`), Pulumi (`pul-`), DigitalOcean (`dop_v1_`), Grafana Cloud (`glc_`), Alibaba (`LTAI`)
 
 Environment variables whose names match `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `AUTH`,
-`CREDENTIAL`, `PRIVATE`, or `OAUTH` are also added at startup (values of 8+ characters,
-plus passwords embedded in `scheme://user:password@host` URLs).
+`CREDENTIAL`, `PRIVATE`, or `OAUTH` are also added at startup at 8+ chars, plus credentials
+embedded in `scheme://user:password@host` URLs. An exported variable is an explicit
+declaration, so its value is trusted by name even when it does not look like a key.
 
 ### Where secrets are found
 

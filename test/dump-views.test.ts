@@ -155,15 +155,15 @@ describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => 
 			const pad = chunk.length === 16 ? " " : "  ";
 			rows.push(`${i.toString(16).padStart(8, "0")}: ${chunk.join(" ")}${pad}${body.slice(i, i + 16)}`);
 		}
-		return rows.join("\n") + "\n";
+		return `${rows.join("\n")}\n`;
 	}
 
 	test("a built-in secret dumped with xxd folds once; tail rows keep their ASCII column", () => {
 		const o = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
 		const secret = "sk_live_" + "Xq7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG123456";
-		const body = "prefix " + secret + " suffix";
+		const body = `prefix ${secret} suffix`;
 		const dump = xxd(body);
-		const full = "HEADER LINE\n" + dump + "TAIL LINE\n";
+		const full = `HEADER LINE\n${dump}TAIL LINE\n`;
 		const out = scrubString(o, full);
 		expect(out).not.toContain(secret);
 		expect(out).toContain("$$");
@@ -175,7 +175,7 @@ describe("phase 10 - xxd LINE_RE over-consumption (ASCII column as hex)", () => 
 	test("two identical dumps in one output are both folded (no stale offsets)", () => {
 		const o = new SecretObfuscator(builtinCredentialSecretEntries(), KEY);
 		const secret = "sk_live_" + "Xq7mZ2xK9pL4vN8cB1T6wY3sH5jF0dG123456";
-		const dump = xxd("token " + secret);
+		const dump = xxd(`token ${secret}`);
 		const full = dump + dump;
 		const out = scrubString(o, full);
 		expect(out).not.toContain(secret);

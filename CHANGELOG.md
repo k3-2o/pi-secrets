@@ -5,6 +5,7 @@
 - At-rest redaction is hash-only: credential-shaped spans the 8-char capture floor does not take (short password-named values, URL passwords) become reversible, span-local `$$HASH$$` placeholders instead of a one-way fallback.
 - The assignment gate is key-shaped: credential-named values redact only when they look like keys (vendor prefixes, password-like strings, 24+ hex, mixed-case alnum, credential symbols). Templates, display strings, filenames, versions, dates, and serials under secret names stay raw. Vendor shapes remain a name-independent fallback.
 - URL passwords register session-wide only when 8+ chars and mixed-case or credential-symbol; doc-default examples like `password123` stay line-local, with the URL span redaction unchanged.
+- Env vars are trusted by name: credential-named values register at startup regardless of shape, including UUID-shaped keys, plus URL passwords. `secrets.yml` remains the explicit channel for values not present in the environment.
 - Credential-named UUID values are key-shaped and redact under both env registration and assignment capture, except identifier names ending in `_ID`; the hyphenated-UUID veto is removed.
 - Legacy redacted text already present in old transcripts passes through untouched; the active-obfuscator prompt note names only the `$$…$$` placeholder form.
 

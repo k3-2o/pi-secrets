@@ -108,11 +108,11 @@ describe("loadSecrets - secrets.yml merge", () => {
 describe("collectEnvSecrets", () => {
 	test("name pattern + 8-char floor", () => {
 		try {
-			process.env.PSTEST_API_KEY = "abcdefghijklmnop";
+			process.env.PSTEST_API_KEY = "abcdefghijklmnop123";
 			process.env.PSTEST_TOKEN_VAL = "shrt";
 			process.env.PSTEST_BLAND_PATH = "x".repeat(200);
 			const entries = collectEnvSecrets();
-			expect(entries.some((e) => e.content === "abcdefghijklmnop")).toBe(true);
+			expect(entries.some((e) => e.content === "abcdefghijklmnop123")).toBe(true);
 			expect(entries.some((e) => e.content === "shrt")).toBe(false);
 			expect(entries.some((e) => e.content === "x".repeat(200))).toBe(false);
 		} finally {
@@ -124,15 +124,51 @@ describe("collectEnvSecrets", () => {
 
 	test("connection-URL passwords extracted (raw + percent-decoded), name-independent", () => {
 		try {
-			process.env.PSTEST_DATABASE_URL = "postgres://user:supersecretpass123@host:5432/db";
+			process.env.PSTEST_DATABASE_URL = "postgres://user:supersecretPass123@host:5432/db";
 			process.env.PSTEST_WEIRD_URL = "redis://u:p%40ss%20word789@host:6379";
 			const entries = collectEnvSecrets();
-			expect(entries.some((e) => e.content === "supersecretpass123")).toBe(true);
+			expect(entries.some((e) => e.content === "supersecretPass123")).toBe(true);
 			expect(entries.some((e) => e.content === "p@ss word789")).toBe(true);
 		} finally {
 			delete process.env.PSTEST_DATABASE_URL;
 			delete process.env.PSTEST_WEIRD_URL;
 		}
+	});
+});
+
+describe("env declaration trust", () => {
+	const withEnv = <T>(vars: Array<[string, string]>, run: () => T): T => {
+		const saved = new Map<string, string | undefined>();
+		try {
+			for (const [k, v] of vars) {
+				saved.set(k, process.env[k]);
+				process.env[k] = v;
+			}
+			return run();
+		} finally {
+			for (const [k, v] of saved) {
+				if (v === undefined) delete process.env[k];
+				else process.env[k] = v;
+			}
+		}
+	};
+	test("credential-named values register regardless of shape", () => {
+		const vars: Array<[string, string]> = [
+			["PSTEST_TOKEN_COUNT", "12345678"],
+			["PSTEST_PASSWORD", "password"],
+			["PSTEST_SECRET", "changeme"],
+			["PSTEST_API_KEY", `sk-proj-${"A".repeat(40)}`],
+			["PSTEST_UUID_KEY", "123e4567-e89b-12d3-a456-426614174000"],
+		];
+		withEnv(vars, () => {
+			const contents = collectEnvSecrets().map((e) => e.content);
+			for (const [, v] of vars) expect(contents).toContain(v);
+		});
+	});
+	test("URL passwords in env values register regardless of shape", () => {
+		withEnv([["PSTEST_DB_URL", "postgres://app:password123@host/db"]], () => {
+			expect(collectEnvSecrets().map((e) => e.content)).toContain("password123");
+		});
 	});
 });
 

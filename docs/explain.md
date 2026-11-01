@@ -118,6 +118,11 @@ gone for everyone, including an attacker who stole the old key.
   vendor token in plain prose) passes through as-is unless the vendor net matches its
   prefix. All-caps or dotted runs that do not look like keys also stay raw; register
   them in `secrets.yml` if they matter.
+- **Env declarations are trusted by name.** A credential-named environment variable at
+  8+ chars registers regardless of value shape, because exporting it is an explicit
+  declaration. That includes UUID-shaped keys, which the assignment gate would otherwise
+  leave raw. Environment URL passwords register the same way. Anything
+  not present in the environment goes in `secrets.yml`.
 
 ## Enabling safety in practice
 
