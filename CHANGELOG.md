@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-01
 
 - At-rest redaction is hash-only: credential-shaped spans the 8-char capture floor does not take (short password-named values, URL passwords) become reversible, span-local `$$HASH$$` placeholders instead of a one-way fallback.
 - The assignment gate is key-shaped: credential-named values redact only when they look like keys (vendor prefixes, password-like strings, 24+ hex, mixed-case alnum, credential symbols). Templates, display strings, filenames, versions, dates, and serials under secret names stay raw. Vendor shapes remain a name-independent fallback.
